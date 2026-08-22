@@ -16,6 +16,7 @@
     "migrate:down": "node-pg-migrate --migrations-dir ../db/migrations --migration-file-language sql --envPath ../.env down 1"
   },
   "dependencies": {
+    "@types/node-cron": "^3.0.11",
     "compression": "^1.7.5",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
@@ -25,6 +26,7 @@
     "helmet": "^8.0.0",
     "ioredis": "^5.4.1",
     "morgan": "^1.10.0",
+    "node-cron": "^3.0.3",
     "node-pg-migrate": "^7.9.1",
     "pg": "^8.13.1",
     "web-push": "^3.6.7",

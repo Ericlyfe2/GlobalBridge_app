@@ -47,6 +47,8 @@ const CATALOGS: Partial<Record<Locale, Catalog>> = {
     "notification.security.title": "Security alert",
     "notification.document.title": "Document needs attention",
     "notification.opportunity.title": "New opportunity for you",
+    "notification.checklist.title": "Your visa checklist is waiting",
+    "notification.checklist.body": "{remaining} step(s) left for {destination}. Pick up where you left off.",
   },
   fr: {
     "notification.message.title": "Nouveau message de {name}",
@@ -57,6 +59,8 @@ const CATALOGS: Partial<Record<Locale, Catalog>> = {
     "notification.security.title": "Alerte de sécurité",
     "notification.document.title": "Document à vérifier",
     "notification.opportunity.title": "Nouvelle opportunité pour vous",
+    "notification.checklist.title": "Votre check-list visa vous attend",
+    "notification.checklist.body": "Il reste {remaining} étape(s) pour {destination}. Reprenez où vous en étiez.",
   },
   es: {
     "notification.message.title": "Nuevo mensaje de {name}",
@@ -67,6 +71,8 @@ const CATALOGS: Partial<Record<Locale, Catalog>> = {
     "notification.security.title": "Alerta de seguridad",
     "notification.document.title": "Un documento necesita atención",
     "notification.opportunity.title": "Nueva oportunidad para ti",
+    "notification.checklist.title": "Tu lista de visado te espera",
+    "notification.checklist.body": "Quedan {remaining} paso(s) para {destination}. Continúa donde lo dejaste.",
   },
   ar: {
     "notification.message.title": "رسالة جديدة من {name}",
@@ -77,6 +83,8 @@ const CATALOGS: Partial<Record<Locale, Catalog>> = {
     "notification.security.title": "تنبيه أمني",
     "notification.document.title": "مستند يحتاج إلى مراجعة",
     "notification.opportunity.title": "فرصة جديدة لك",
+    "notification.checklist.title": "قائمة التأشيرة في انتظارك",
+    "notification.checklist.body": "بقيت {remaining} خطوة لـ {destination}. تابع من حيث توقفت.",
   },
 };
 

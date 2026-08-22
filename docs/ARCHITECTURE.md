@@ -99,6 +99,8 @@ backend/src/
   routes/      app-config, auth, users, housing, opportunities, messages, content
   routes/ai/   chat, scam-check, doc-check, visa-roadmap, readiness,
                score-essay, compare-countries, translate, conversations
+  lib/reminders/ store, time, bookings, opportunities, checklists
+  scheduler.ts             node-cron wiring, overlap guard
   scripts/     seed-pagination.ts
 db/migrations/              node-pg-migrate, SQL, ordered
 ```
@@ -381,15 +383,107 @@ ungrounded answer about a visa fee is the failure this layer exists to prevent.
 
 ---
 
+## 9b. Scheduled reminders
+
+node-cron in-process, every 15 minutes, off unless `REMINDERS_ENABLED` is set. Three
+sources: mentor sessions, saved-opportunity deadlines, and stale visa checklists.
+
+### The timezone rule
+
+`mentor_bookings.slot_date` is a DATE and `slot_time` is a TIME. Neither carries a zone, so
+"2026-09-14, 15:00" is not an instant — it is a wall-clock reading that means six different
+moments depending on who is holding the clock. `student_timezone` exists to resolve that.
+
+**A booking has exactly one absolute instant**, derived from the stored reading interpreted
+in the **student's** zone, because the student booked the slot and the time was written from
+their clock. `mentor_timezone` does *not* produce a second instant — there is no second
+instant. It renders that one moment on the mentor's clock, so their reminder says "8:00 AM"
+where the student's says "3:00 PM". Getting this backwards produces two reminders for two
+different moments and one of the pair turns up alone.
+
+The conversion happens in SQL, in the same statement that does the filtering, so the WHERE
+clause and the value carried into the notification cannot disagree about what time the
+session is. Timezone names come from client input, and Postgres raises on an unrecognised
+one — which would abort a whole pass over one bad profile row — so every name is checked
+against `pg_timezone_names` and degrades to UTC. Rows that fall back are counted and warned
+about rather than passing silently, because those reminders may land at the wrong local hour.
+
+Deadlines are treated differently on purpose: an opportunity deadline is a DATE, a calendar
+day rather than a moment, and it is formatted **without** timezone conversion. Converting it
+would shift it a day for users far enough east or west, and telling someone their deadline
+is the 31st when the form says the 1st is the one error that makes the feature harmful.
+The *send time* is still local — 09:00 in the recipient's zone — because firing whenever the
+cron pass lands would push a lock-screen alert at 3am to half the world.
+
+### Restart and multi-instance safety
+
+`reminders_sent` is unique on `(kind, subject_id, user_id, fire_key)`, and a reminder is
+**claimed before it is dispatched**, not recorded after. That single constraint answers both
+problems at once:
+
+- **A restart mid-pass** cannot re-send what already went out. The ledger is durable.
+- **A second instance** does not double-send. Two concurrent passes race on the insert and
+  exactly one wins per reminder. This is why the in-process scheduler is not the usual
+  liability: extra instances waste a few queries, they do not notify anyone twice. A separate
+  worker process would still need the same claim logic to survive its own restarts, so the
+  claim is the load-bearing part and the process topology is not.
+
+The guarantee is *exactly once* in the normal case, and *at most twice* only if a process
+dies inside the ten-minute grace window between claiming and dispatching — a claim left
+hanging in `claimed` may be retaken, a row that reached `sent` never can. The direction of
+that trade-off is deliberate: a user who misses a reminder misses a visa appointment, and a
+user who gets one twice is mildly annoyed.
+
+### The catch-up window
+
+A pass looks at a window ending now and starting six hours back, so a deploy or an incident
+makes reminders fire *late* rather than never. The floor matters as much as the lookback: a
+"your session starts in one hour" notification delivered nine hours afterwards is not a late
+reminder, it is a false one — the user believes it and turns up for a meeting that already
+happened. Past the window, reminders are dropped and counted as stale.
+
+Sources are isolated from each other. A scheduler that aborts the whole pass because one
+table is locked is how every reminder goes missing at once. Every pass logs its counts,
+including the quiet ones — the failure mode of a reminder system is silence, and silence is
+indistinguishable from "nothing was due".
+
+### What checklist reminders actually are, and why
+
+§3.7 asks for reminders on `visa_checklists` items. **The data cannot support that**, and
+the approximation is worse than the gap.
+
+A checklist's `items` are roadmap phases produced by the Visa Roadmap feature:
+`{ id, title, timeframe: "Weeks 1–3", cost, documents, tip }`. `timeframe` is a relative
+estimate the model generated for a journey with no fixed start, and there is no due date
+anywhere in the structure. Deriving a calendar date from "Weeks 1–3" means inventing a start
+point and then pushing a notification asserting a deadline we made up — exactly what the AI
+safety contract forbids, and worse in a push than in a chat reply because the user cannot
+see the reasoning behind it.
+
+So what ships is a **nudge about the user's own inactivity**, which is a fact we hold: a
+checklist with unfinished phases untouched for 14 days. It is `kind: "info"`, not `deadline`
+— miscategorising it would give it the never-collapse, high-priority delivery real deadlines
+get and dilute the category users rely on — and it fires once per checklist, ever, because
+nagging someone about a list they have abandoned is how notifications get switched off
+wholesale. Regenerating a roadmap creates a new row, which earns a fresh nudge.
+
+To make real item deadlines work, add an optional `due_date` to the phase schema that the
+*user* sets as they work through the roadmap. That branch is not written here: nothing
+produces such a field today, and shipping a code path no data can reach is dead code that
+reads as a feature.
+
+Migration 0005 also adds `visa_checklists.updated_at`, backfilled from `created_at` — the
+table only ever had a creation timestamp, so "has this person touched their checklist" was
+unanswerable. Until a checklist write path exists in this service, the two are equal.
+
+---
+
 ## 9. Not built yet
 
 Listed rather than glossed over. None of these is blocked; they are the next passes.
 
-- **Scheduled reminders.** Deadline, checklist and booking reminders have nothing calling
-  `dispatchNotification()`. The timezone groundwork is in (`users.timezone`,
-  `mentor_bookings.student_timezone` and a new `mentor_timezone`) but no scheduler runs.
-  A reminder job that ignores those columns will fire at the wrong hour for most users, and
-  it needs a `reminders_sent` ledger so a restart mid-run does not re-fire.
+- **Item-level checklist deadlines.** See §9b: the roadmap phase schema has no due date,
+  and deriving one would mean inventing a deadline. The staleness nudge ships instead.
 - **File uploads.** No upload path exists here. It should be pre-signed object storage —
   the image never transits Express — with magic-byte MIME validation, EXIF stripping (GPS
   in a photo of a passport is a real privacy leak for this audience), and short-lived signed
@@ -403,8 +497,10 @@ Listed rather than glossed over. None of these is blocked; they are the next pas
 - **Live verification.** The suite is unit and route-handler level and runs with Postgres,
   Firebase and OpenAI mocked. The checks that need a real database, a real key and two real
   devices — suspended-token rejection on REST *and* WebSocket, a push arriving after
-  sign-out reaching nobody, paging past 100 real rows, and **any AI feature against a live
-  model** — have **not** been run. `seed-pagination.ts`
+  sign-out reaching nobody, paging past 100 real rows, **any AI feature against a live
+  model**, and **the reminder timezone conversion against a real Postgres** — have **not**
+  been run. The conversion is `AT TIME ZONE` inside the query, so the unit tests cover the
+  rendering half and the claim protocol but not the SQL that decides which rows are due. `seed-pagination.ts`
   exists for the third; the others need a disposable account against a real project.
 
 ---

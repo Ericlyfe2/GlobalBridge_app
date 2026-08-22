@@ -43,6 +43,13 @@ const envSchema = z.object({
   FCM_ENABLED: z.coerce.boolean().default(false),
 
   OPENAI_API_KEY: z.string().optional(),
+
+  // ── Reminders (§3.7) ─────────────────────────────────────────────────────
+  // Off by default. The scheduler sends push notifications, so switching it on
+  // is a deliberate act -- a misconfigured staging instance pointed at the
+  // production database would otherwise notify real users.
+  REMINDERS_ENABLED: z.coerce.boolean().default(false),
+  REMINDER_CRON: z.string().default("*/15 * * * *"),
 });
 
 const parsed = envSchema.safeParse(process.env);

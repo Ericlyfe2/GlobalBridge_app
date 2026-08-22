@@ -18,8 +18,11 @@ The AI surface is ported (§2, §9a): eight features at `/api/v1/ai/*`, one impl
 each, one rate limiter, one spend ledger, one place the OpenAI key lives. Every feature
 degrades honestly without a key rather than pretending to have run.
 
-Not built yet: scheduled reminders, file uploads, the aggregate endpoints, and the mobile
-app. See §9.
+Scheduled reminders are in (§9b): mentor sessions, saved-opportunity deadlines, and stale
+checklists, resolved against each recipient's timezone and idempotent across restarts and
+instances. Off unless `REMINDERS_ENABLED` is set.
+
+Not built yet: file uploads, the aggregate endpoints, and the mobile app. See §9.
 
 ## Setup
 
