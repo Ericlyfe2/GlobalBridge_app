@@ -14,8 +14,12 @@ The backend foundation is in: API versioning and the update gate, native-origin 
 a uniform pagination envelope, Firebase auth with revocation checking, a WebSocket layer
 built for a client that sleeps, and native push with device-token management.
 
-Not built yet: the AI surface, scheduled reminders, file uploads, the aggregate endpoints,
-and the mobile app. See §9.
+The AI surface is ported (§2, §9a): eight features at `/api/v1/ai/*`, one implementation
+each, one rate limiter, one spend ledger, one place the OpenAI key lives. Every feature
+degrades honestly without a key rather than pretending to have run.
+
+Not built yet: scheduled reminders, file uploads, the aggregate endpoints, and the mobile
+app. See §9.
 
 ## Setup
 

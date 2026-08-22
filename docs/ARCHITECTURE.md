@@ -34,8 +34,7 @@ This service is the answer to that. It is the API a phone can talk to.
 ## 2. The AI path — decision
 
 **Decision: the AI surface belongs in the API (Option A), and this service is where it
-lands.** Not built yet — see §9 — but the shape is settled and nothing here should be
-designed as though the alternative is still open.
+lands.** Implemented — see §9a for what the port actually produced.
 
 **The alternative considered.** Leave the eight handlers in Next.js and let mobile call the
 Next.js server for AI and this service for everything else. It ports nothing and risks no
@@ -55,18 +54,19 @@ server-side machinery that happens to be running in a Next.js process. Duplicati
 across two runtimes is precisely how a stale model identifier ends up live in one copy and
 not the other — a class of bug this codebase has already had once.
 
-**Binding consequences when it is built.**
+**Binding consequences, now in force.**
 
-- The eight handlers become `/api/v1/ai/*` here, with exactly one implementation.
-- Next.js route handlers become **thin proxies**, not a second copy.
-- The `mockFallback` behaviour and the disabled-state honesty rules survive the port
-  verbatim: a disabled feature returns an explicit disabled response rather than pretending
-  to work, and `scam-check` still defaults to the **cautious** verdict when it cannot run.
-  A scam checker that fails open is worse than one that is switched off.
+- The eight handlers are `/api/v1/ai/*` here, with exactly one implementation.
+- Next.js route handlers become **thin proxies**, not a second copy. (Not written — that
+  edit belongs to the web repository, which this project does not touch.)
+- The fallback behaviour and the disabled-state honesty rules survived the port: a disabled
+  feature returns an explicit disabled response rather than pretending to work, and
+  `scam-check` defaults to the **cautious** verdict when it cannot run. A scam checker that
+  fails open is worse than one that is switched off.
 - One rate limiter, one usage log, one place the OpenAI key lives.
 
-**The cost, stated plainly.** Express uptime now gates AI features that previously survived
-Express being down, and web gains a hop. Both are accepted.
+**The cost, stated plainly.** This service's uptime now gates AI features, and web gains a
+hop. Both are accepted.
 
 ---
 
@@ -94,8 +94,11 @@ backend/src/
   ws.ts                     WebSocket: auth, heartbeat, fan-out
   db.ts, env.ts             pool + optional Redis; fail-fast config
   lib/         version, pagination, i18n, deep-links, sanitize, push, firebase-admin
+  lib/ai/      client, config, guard, usage, pricing, prompts, fallbacks, rag, json
   middleware/  auth, client-version, csrf, error
   routes/      app-config, auth, users, housing, opportunities, messages, content
+  routes/ai/   chat, scam-check, doc-check, visa-roadmap, readiness,
+               score-essay, compare-countries, translate, conversations
   scripts/     seed-pagination.ts
 db/migrations/              node-pg-migrate, SQL, ordered
 ```
@@ -293,12 +296,95 @@ token string could silence another user's security alerts.
 
 ---
 
+## 9a. The AI surface
+
+Eight features, all at `POST /api/v1/ai/*`: `chat`, `scam-check`, `doc-check`,
+`visa-roadmap`, `readiness`, `score-essay`, `compare-countries`, `translate`. Plus
+`/ai/conversations`, `/ai/usage/today` and `/ai/status`.
+
+**What the port removed.** Every one of these used to be a Next.js route handler that
+reached back into the API over HTTP to do its work: verify the token (`GET /auth/me`),
+check the budget (`GET /ai/usage/today`), retrieve context (`POST /rag/search`), read the
+admin config (`GET /content/ai-config`), write the ledger (`POST /ai/usage`), persist the
+transcript (`POST /ai/messages`). Six network calls, each with a timeout to choose and a
+failure mode to decide, to do work the API already had in-process. They are function calls
+and queries now. That is the whole argument for Option A, and it is why `chat.ts` is
+shorter than the handler it replaces despite doing more.
+
+**The pipeline**, unchanged in shape:
+
+```
+requireAuth → aiGuard(feature) → admin flag → strict-JSON prompt → extractJson → fallback
+                  │
+                  ├─ burst limit (per user, per feature, in-process)
+                  └─ daily spend ceiling (per user, from ai_usage_log)
+```
+
+`aiGuard` runs both checks *before* the model, so an over-budget request costs nothing. The
+burst limit is per-process and therefore approximate; that is acceptable precisely because
+the spend ceiling underneath it is database-backed and is not. When the ledger is
+unreachable the request is **allowed** — failing closed would take the entire AI surface
+down over an infrastructure blip unrelated to anyone's budget, and the burst limit plus the
+per-feature input caps still bound the damage.
+
+**Input caps exist because `max_tokens` only caps the reply.** Without one, a single request
+can carry megabytes of prompt — the expensive half, and the half an attacker controls.
+
+**Honesty rules, per feature.** Every degraded path is labelled, and none of them
+impersonates a real result:
+
+| Feature | No model available | Admin switched it off |
+|---|---|---|
+| `scam-check` | heuristic scan, **floored at "Be cautious"** | explicit `disabled`, cautious band |
+| `doc-check` | the standard checklist, every item `warn` | explicit `disabled` |
+| `visa-roadmap` | generic roadmap, flagged `degraded` | — |
+| `readiness` | user's own scores + lowest-pillar-first actions | — |
+| `translate` | source strings back, flagged `degraded` | source strings, flagged |
+| `chat` | honest "unavailable" reply, `degraded` | honest "turned off" reply |
+| `score-essay` | **503** — no fallback exists | — |
+| `compare-countries` | **503** — no fallback exists | — |
+
+Two of those deserve their reasoning stated:
+
+- **Scam Shield floors at "Be cautious" (score 40) when it cannot run properly.** A clean
+  heuristic pass is not evidence of safety, it is evidence that eight regexes did not
+  match. The user is standing in front of a decision about whether to wire someone a
+  deposit, and silence from a safety tool reads as approval. There is no path through that
+  handler that returns "Likely safe" without a real analysis behind it.
+- **Essay scoring returns 503 rather than a canned review.** A fabricated review quotes
+  passages the user did not write and scores work the model never read — for a document
+  they are about to submit to a university. "We could not review this" is the only honest
+  failure.
+
+**Sources are labelled by provenance, not by model self-report.** A URL that came out of
+the curated knowledge base is `knowledge_base`; one the model produced from its own weights
+is `web` and is presented as something to check. This audience acts on these links.
+
+**Model coercion.** `platform_settings.ai_model` is validated before use. The web
+platform's seed shipped `ai_model = "claude-haiku-4-5"` while the calling code speaks the
+OpenAI chat-completions API — so every request failed at the provider and landed silently
+in the mock fallback. The product *looked* like a working AI giving suspiciously generic
+answers, which is the hardest kind of failure to notice because nothing errors. A model
+whose id does not match the configured provider is now refused with a loud log and replaced
+with `gpt-4o-mini`. The check is provider-shaped rather than an allow-list: new OpenAI
+models ship faster than this file is edited, and refusing a valid new one would be its own
+outage.
+
+**Cost** is derived from tokens on read, never stored, so a price correction reprices
+history. An unpriced model is charged at a punitive fallback rate rather than treated as
+free — the ceiling arriving early is the safe direction to be wrong in.
+
+**Retrieval** is pgvector over `knowledge_base`, with two cache layers in front of the
+embedding call (Redis, then Postgres) so only a miss on both spends money. When embedding
+fails it falls back to Postgres full-text search rather than answering ungrounded — an
+ungrounded answer about a visa fee is the failure this layer exists to prevent.
+
+---
+
 ## 9. Not built yet
 
 Listed rather than glossed over. None of these is blocked; they are the next passes.
 
-- **The AI surface.** §2 settles where it goes; the port has not happened. The eight
-  features do not exist in this service yet.
 - **Scheduled reminders.** Deadline, checklist and booking reminders have nothing calling
   `dispatchNotification()`. The timezone groundwork is in (`users.timezone`,
   `mentor_bookings.student_timezone` and a new `mentor_timezone`) but no scheduler runs.
@@ -314,10 +400,11 @@ Listed rather than glossed over. None of these is blocked; they are the next pas
   NAT. But counters are **per-process**: with more than one instance this under-counts by
   the instance count.
 - **The mobile client itself.** No `mobile/` package yet. This pass is the API.
-- **Live verification.** The suite is unit and route-handler level and runs with Postgres
-  and Firebase mocked. The checks that need a real database and two real devices —
-  suspended-token rejection on REST *and* WebSocket, a push arriving after sign-out
-  reaching nobody, paging past 100 real rows — have **not** been run. `seed-pagination.ts`
+- **Live verification.** The suite is unit and route-handler level and runs with Postgres,
+  Firebase and OpenAI mocked. The checks that need a real database, a real key and two real
+  devices — suspended-token rejection on REST *and* WebSocket, a push arriving after
+  sign-out reaching nobody, paging past 100 real rows, and **any AI feature against a live
+  model** — have **not** been run. `seed-pagination.ts`
   exists for the third; the others need a disposable account against a real project.
 
 ---
