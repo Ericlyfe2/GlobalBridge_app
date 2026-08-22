@@ -1,0 +1,5 @@
+{
+  "extends": "./tsconfig.json",
+  "comment": "Build config. Tests are still typechecked by `npm run typecheck` (which uses the base config) — they just have no business in a production image.",
+  "exclude": ["node_modules", "dist", "src/**/*.test.ts", "src/__tests__"]
+}

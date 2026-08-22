@@ -1,0 +1,49 @@
+{
+  "name": "globalbridge-mobile-api",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "migrate": "node-pg-migrate --migrations-dir ../db/migrations --migration-file-language sql --envPath ../.env up",
+    "migrate:status": "node-pg-migrate --migrations-dir ../db/migrations --migration-file-language sql --envPath ../.env --dry-run up",
+    "seed:pagination": "tsx src/scripts/seed-pagination.ts",
+    "migrate:down": "node-pg-migrate --migrations-dir ../db/migrations --migration-file-language sql --envPath ../.env down 1"
+  },
+  "dependencies": {
+    "compression": "^1.7.5",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.1",
+    "express-rate-limit": "^7.4.1",
+    "firebase-admin": "^13.10.0",
+    "helmet": "^8.0.0",
+    "ioredis": "^5.4.1",
+    "morgan": "^1.10.0",
+    "node-pg-migrate": "^7.9.1",
+    "pg": "^8.13.1",
+    "web-push": "^3.6.7",
+    "ws": "^8.18.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/compression": "^1.7.5",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/morgan": "^1.9.9",
+    "@types/node": "^22.9.0",
+    "@types/pg": "^8.11.10",
+    "@types/supertest": "^6.0.2",
+    "@types/web-push": "^3.6.4",
+    "@types/ws": "^8.5.13",
+    "supertest": "^7.0.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3",
+    "vitest": "^4.1.7"
+  }
+}

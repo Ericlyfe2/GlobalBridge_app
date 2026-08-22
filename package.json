@@ -1,0 +1,15 @@
+{
+  "name": "globalbridge-app",
+  "version": "0.1.0",
+  "private": true,
+  "description": "GlobalBridge mobile client + the API that serves it. Backend-first.",
+  "workspaces": ["backend"],
+  "scripts": {
+    "dev": "npm --workspace backend run dev",
+    "build": "npm --workspace backend run build",
+    "test": "npm --workspace backend run test",
+    "typecheck": "npm --workspace backend run typecheck",
+    "migrate": "npm --workspace backend run migrate",
+    "migrate:status": "npm --workspace backend run migrate:status"
+  }
+}
