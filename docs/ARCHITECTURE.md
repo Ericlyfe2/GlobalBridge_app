@@ -96,10 +96,12 @@ backend/src/
   lib/         version, pagination, i18n, deep-links, sanitize, push, firebase-admin
   lib/ai/      client, config, guard, usage, pricing, prompts, fallbacks, rag, json
   middleware/  auth, client-version, csrf, error
-  routes/      app-config, auth, users, housing, opportunities, messages, content
+  routes/      app-config, auth, users, housing, opportunities, messages,
+               content, uploads
   routes/ai/   chat, scam-check, doc-check, visa-roadmap, readiness,
                score-essay, compare-countries, translate, conversations
   lib/reminders/ store, time, bookings, opportunities, checklists
+  lib/uploads/   storage, file-type, metadata, process
   scheduler.ts             node-cron wiring, overlap guard
   scripts/     seed-pagination.ts
 db/migrations/              node-pg-migrate, SQL, ordered
@@ -478,16 +480,104 @@ unanswerable. Until a checklist write path exists in this service, the two are e
 
 ---
 
+## 9c. File uploads
+
+`POST /uploads/presign` → client PUTs straight to the bucket → `POST /uploads/:id/complete`
+→ `GET /uploads/:id` returns a 5-minute signed read URL. Unavailable, explicitly, when no
+bucket is configured.
+
+### The tension, and how it resolves
+
+"The bytes never transit Express" and "strip EXIF before storing" cannot both be true of the
+same moment — stripping metadata means rewriting the file, and rewriting it means having it.
+What *can* be true is that the **upload** does not transit Express. The client's slow,
+connection-bound PUT goes straight to the object store; the server then reads the object
+once, from inside the same datacentre, at wire speed.
+
+A multi-megabyte camera photo travelling through Express holds a request slot, a body-parser
+buffer and the memory behind it for the entire duration of an upload over a phone's
+connection — tens of seconds on 3G. A handful of concurrent uploads starves every other
+request on the instance.
+
+So the object lands in a **quarantine prefix** first. Between the PUT and validation it is
+arbitrary attacker-controlled bytes that happen to be in our bucket: unsniffed, unmeasured,
+unstripped. A separate prefix means a misconfigured policy or a bug in a serving path cannot
+reach it, and abandoned uploads can be swept without touching real documents. The row is
+`pending` throughout, and nothing is servable until it reaches `ready`.
+
+Nothing the client says is trusted — not the size, not the MIME type, not the filename.
+The declared size only buys an early rejection before a URL is issued; the quota is enforced
+against the measured size at completion, where an over-quota object is deleted rather than
+kept.
+
+### Metadata stripping, and why it is lossless
+
+A phone writes GPS coordinates into every photo. Someone photographing their passport page
+is uploading a file that says where they were standing — usually home — attached to their
+full legal name, nationality and date of birth. For an audience that includes asylum seekers
+and people with reason not to be located, that pairing is the most dangerous thing this
+product could store carelessly. EXIF also carries device serial numbers and, on some phones,
+a thumbnail of the *unedited* frame — so cropping out a sensitive corner can leave the
+uncropped version embedded.
+
+The obvious implementation is to run the image through an encoder, which drops metadata as a
+side effect. It also re-compresses it — and the entire value of these files is that small
+print stays readable: a passport MRZ, a bank statement's figures, an acceptance letter's
+reference number. Generational JPEG loss on text is exactly where artefacts show, and an
+unreadable document gets rejected by an embassy.
+
+So JPEG and PNG are stripped **at the container level**: metadata segments and chunks are
+dropped, compressed image data is copied through byte for byte. Tests assert the decoded
+pixels are bit-identical to the upload.
+
+HEIC and WEBP cannot be handled that way — ISO-BMFF and RIFF interleave metadata with image
+data in ways a naive rewrite gets wrong. Rather than ship a half-correct parser for the
+format iPhones actually produce, those two are transcoded to JPEG at quality 92 with chroma
+subsampling disabled (4:2:0 is where text picks up colour fringing first). The quality cost
+is accepted specifically because an unstripped HEIC off a phone camera is the exact
+GPS-on-a-passport-photo case.
+
+After stripping, the buffer is re-checked for an EXIF marker. If one survives, the upload is
+**rejected** rather than stored — storing it anyway would mean keeping location data we told
+the user we removed.
+
+### Serving
+
+No object is ever written with a public ACL, and no permanent URL exists for a document.
+`GET /uploads/:id` is the authorization boundary: the object store honours any correctly
+signed URL and has no idea who is asking, so the check happens before the URL exists and the
+URL expires in five minutes. A private document 404s for a non-owner rather than 403ing —
+a 403 confirms a document exists at that id and belongs to someone else. Storage keys are
+never returned in listings, because handing them out invites clients to construct URLs
+instead of asking for one.
+
+PDFs are served with `Content-Disposition: attachment`, never inline. A PDF can carry
+embedded JavaScript, and a browser rendering one inline executes it in that context.
+
+### Known gaps
+
+- **PDF metadata is not stripped.** It is spread across the document catalogue, an XMP
+  stream and per-object dictionaries; doing it safely needs a full parser. The
+  attachment-only serving above is the mitigation, not a fix.
+- **No local-disk driver.** Deliberate: a dev flow that differs from production is one that
+  hides production bugs, and the ephemeral-disk fallback is what loses passport scans on
+  deploy. Run MinIO locally.
+- **No sweep for abandoned quarantine objects.** A client that presigns and never uploads
+  leaves a `pending` row and no object; one that uploads and never completes leaves an
+  object under `quarantine/`. Neither is servable or counted against quota, but both
+  accumulate.
+- **Client-side compression is not implemented** — it belongs in the app, which does not
+  exist yet. The 15 MB ceiling assumes it is coming.
+
+---
+
 ## 9. Not built yet
 
 Listed rather than glossed over. None of these is blocked; they are the next passes.
 
 - **Item-level checklist deadlines.** See §9b: the roadmap phase schema has no due date,
   and deriving one would mean inventing a deadline. The staleness nudge ships instead.
-- **File uploads.** No upload path exists here. It should be pre-signed object storage —
-  the image never transits Express — with magic-byte MIME validation, EXIF stripping (GPS
-  in a photo of a passport is a real privacy leak for this audience), and short-lived signed
-  URLs for retrieval.
+- **PDF metadata stripping and a quarantine sweep.** See §9c.
 - **`GET /home` and `GET /sync?since=`.** The mobile-shaped aggregates. Not built.
 - **Redis-backed rate limiting.** The limiter is keyed by authenticated user id when a
   bearer token is present, falling back to IP — which is the actual fix for carrier-grade
@@ -498,8 +588,10 @@ Listed rather than glossed over. None of these is blocked; they are the next pas
   Firebase and OpenAI mocked. The checks that need a real database, a real key and two real
   devices — suspended-token rejection on REST *and* WebSocket, a push arriving after
   sign-out reaching nobody, paging past 100 real rows, **any AI feature against a live
-  model**, and **the reminder timezone conversion against a real Postgres** — have **not**
-  been run. The conversion is `AT TIME ZONE` inside the query, so the unit tests cover the
+  model**, **the reminder timezone conversion against a real Postgres**, and **a real
+  upload against a real bucket** — have **not** been run. The upload suite covers the
+  stripper against genuinely encoded images and the route state machine, but every S3 call
+  is stubbed. The conversion is `AT TIME ZONE` inside the query, so the unit tests cover the
   rendering half and the claim protocol but not the SQL that decides which rows are due. `seed-pagination.ts`
   exists for the third; the others need a disposable account against a real project.
 

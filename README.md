@@ -22,7 +22,12 @@ Scheduled reminders are in (§9b): mentor sessions, saved-opportunity deadlines,
 checklists, resolved against each recipient's timezone and idempotent across restarts and
 instances. Off unless `REMINDERS_ENABLED` is set.
 
-Not built yet: file uploads, the aggregate endpoints, and the mobile app. See §9.
+File uploads are in (§9c): pre-signed direct-to-bucket upload so the bytes never transit
+Express, magic-byte validation, lossless EXIF stripping, thumbnails, and short-lived signed
+read URLs. Needs an S3-compatible bucket; without one the endpoints report themselves
+unavailable rather than storing documents somewhere they will be lost.
+
+Not built yet: the aggregate endpoints and the mobile app. See §9.
 
 ## Setup
 

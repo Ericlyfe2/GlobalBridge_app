@@ -18,6 +18,7 @@ import { opportunitiesRouter } from "./routes/opportunities";
 import { messagesRouter } from "./routes/messages";
 import { contentRouter } from "./routes/content";
 import { aiRouter } from "./routes/ai";
+import { uploadsRouter } from "./routes/uploads";
 
 /**
  * The app is built by a factory rather than at module scope so tests can boot it
@@ -48,6 +49,7 @@ function mountRouters(app: Express) {
     ["/messages", messagesRouter],
     ["/content", contentRouter],
     ["/ai", aiRouter],
+    ["/uploads", uploadsRouter],
   ];
 
   for (const [path, router] of routers) {

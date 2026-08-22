@@ -16,6 +16,8 @@
     "migrate:down": "node-pg-migrate --migrations-dir ../db/migrations --migration-file-language sql --envPath ../.env down 1"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1116.0",
+    "@aws-sdk/s3-request-presigner": "^3.1116.0",
     "@types/node-cron": "^3.0.11",
     "compression": "^1.7.5",
     "cors": "^2.8.5",
@@ -29,6 +31,7 @@
     "node-cron": "^3.0.3",
     "node-pg-migrate": "^7.9.1",
     "pg": "^8.13.1",
+    "sharp": "^0.35.3",
     "web-push": "^3.6.7",
     "ws": "^8.18.0",
     "zod": "^3.23.8"

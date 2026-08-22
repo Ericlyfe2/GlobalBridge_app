@@ -44,6 +44,17 @@ const envSchema = z.object({
 
   OPENAI_API_KEY: z.string().optional(),
 
+  // ── Object storage (§3.8) ────────────────────────────────────────────────
+  // Any S3-compatible store: AWS S3, Cloudflare R2, Backblaze B2, MinIO.
+  // Without S3_BUCKET the upload endpoints report themselves unavailable
+  // rather than accepting identity documents onto a disk the next deploy
+  // destroys.
+  S3_BUCKET: z.string().optional(),
+  S3_REGION: z.string().optional(),
+  S3_ACCESS_KEY_ID: z.string().optional(),
+  S3_SECRET_ACCESS_KEY: z.string().optional(),
+  S3_ENDPOINT: z.string().url().optional(),
+
   // ── Reminders (§3.7) ─────────────────────────────────────────────────────
   // Off by default. The scheduler sends push notifications, so switching it on
   // is a deliberate act -- a misconfigured staging instance pointed at the
