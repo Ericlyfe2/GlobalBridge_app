@@ -1,3 +1,5 @@
+import path from "node:path";
+import dotenv from "dotenv";
 import { z } from "zod";
 
 /**
@@ -6,6 +8,16 @@ import { z } from "zod";
  * A mobile client cannot be told "the server was misconfigured" in any useful
  * way — it just sees timeouts. Refusing to start is the honest failure.
  */
+
+// `npm --workspace` runs every script with cwd set inside backend/, so a bare
+// "dotenv/config" reads backend/.env and never the root .env that migrations
+// open via ../.env. Resolving from this file lands on the same root .env in
+// dev (src/) and production (dist/) regardless of cwd. Loaded here rather
+// than in index.ts because imports hoist: env.ts would otherwise evaluate
+// before any dotenv.config() call below it. Existing process.env values win,
+// which is what tests rely on when they inject config before importing this.
+dotenv.config({ path: path.join(__dirname, "../../.env") });
+
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
   PORT: z.coerce.number().default(4100),

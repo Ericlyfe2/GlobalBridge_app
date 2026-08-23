@@ -97,11 +97,12 @@ backend/src/
   lib/ai/      client, config, guard, usage, pricing, prompts, fallbacks, rag, json
   middleware/  auth, client-version, csrf, error
   routes/      app-config, auth, users, housing, opportunities, messages,
-               content, uploads
+               content, uploads, home, sync
   routes/ai/   chat, scam-check, doc-check, visa-roadmap, readiness,
                score-essay, compare-countries, translate, conversations
   lib/reminders/ store, time, bookings, opportunities, checklists
   lib/uploads/   storage, file-type, metadata, process
+  lib/           etag, query-stats
   scheduler.ts             node-cron wiring, overlap guard
   scripts/     seed-pagination.ts
 db/migrations/              node-pg-migrate, SQL, ordered
@@ -571,6 +572,98 @@ embedded JavaScript, and a browser rendering one inline executes it in that cont
 
 ---
 
+## 9d. Aggregate endpoints
+
+`GET /home` — the whole first screen in one request. `GET /sync?since=` — deltas for the
+local cache.
+
+### Why /home exists
+
+The home screen needs eight unrelated things: who you are, checklist progress, the next
+deadline, the next session, two unread counts, saved items, and a few opportunities. As
+separate endpoints that is eight round trips before anything renders, paid on the worst
+network the user will have all day, in front of a splash screen.
+
+Three rules keep it worth having:
+
+- **A fixed query count.** Everything runs in one `Promise.all`, and the count does not move
+  with how much data the user has. That is the property that makes an N+1 *impossible* here
+  rather than merely absent today, and there is a test that asserts it by running the
+  endpoint against an empty account and a populated one and comparing.
+- **No unbounded arrays.** Every list carries an explicit small LIMIT. This is a summary:
+  a user with four hundred saved items does not need four hundred rows to see they have
+  some. Counts come back as counts; the previews have their own endpoints behind them.
+- **No volatile fields.** There is no `generated_at`. A timestamp would change the ETag on
+  every request and turn the whole caching mechanism into decoration.
+
+The next session is sent as an ISO instant, resolved the same way the reminder scheduler
+resolves it, so the home screen and the notification cannot disagree about when a session
+is. A preformatted local time would be wrong the moment the user travels — which this
+audience does by definition.
+
+### The caching nuance
+
+Every other authenticated response here sends `no-store`, because a shared, origin-scoped
+cache holding one user's data can serve it to the next user of the same browser or proxy.
+
+`no-store` would be the wrong instrument on `/home`, though: it also forbids the client's own
+*private* cache from keeping a copy, and without a stored copy there is nothing for
+`If-None-Match` to revalidate against. The ETag could then never produce a 304.
+
+So `/home` sends `private, max-age=0, must-revalidate` plus `Vary: Authorization` — this
+belongs to one user, never put it in a shared cache, and check before reusing it. The app
+pays a round trip but not a payload, which on a cold start over a slow connection is most of
+the cost. The ETag hashes the serialised payload, so a 304 happens exactly when the answer
+really is identical.
+
+### /sync and the deletion problem
+
+Returned: notifications, messages, conversations, checklists, saved items. Deliberately
+absent, and required to stay absent: **AI responses** (guidance generated against config and
+a knowledge base that change — a cached answer about a visa fee outlives its accuracy with
+no way for the client to know), **documents** (served through short-lived signed URLs
+precisely so a copy does not persist somewhere unmanaged), and **anything token-shaped**.
+
+The hard part of any delta protocol is deletions: a "changed since" query cannot report a
+row that no longer exists, so unsaving an opportunity on one device leaves it on another
+forever. Two honest answers, both used:
+
+1. For `saved_items` — small, bounded, and where deletion is a normal daily action — the
+   full authoritative id list comes back every time and the client reconciles by set
+   difference. A few hundred bytes, and exactly correct. If the list ever exceeds its cap it
+   is returned as `complete: false` and empty, because reconciling deletions against a
+   truncated list would delete real rows from the client's cache.
+2. For everything else deletion is rare or soft — conversations are not deleted,
+   notifications are marked read rather than removed, checklists are replaced wholesale on
+   regeneration — and those are covered by the full-resync rule instead.
+
+A tombstone table would generalise this and is the right answer the moment a hard-delete
+path appears for messages or notifications. It is not built because nothing produces those
+deletions today.
+
+**An old cursor forces a full resync.** Delta sync without tombstones degrades with time:
+the longer a client has been away, the likelier something it holds was deleted in a way the
+response cannot describe. Past 30 days the honest move is to tell the client to start over
+rather than hand it a delta that quietly strands stale rows. A first call with no cursor is
+the same case.
+
+The cursor advances to the newest row returned, never to `now` — the server clock would skip
+anything written between the query and the response.
+
+### Query counting
+
+`db.query` records into an `AsyncLocalStorage` counter, and in development every request
+logs its query count and driver time; anything past twelve is logged as a warning with the
+statements attached. An N+1 in an aggregate endpoint does not announce itself — the response
+is correct and the tests pass, and the only symptom is a home screen that takes two seconds
+instead of two hundred milliseconds. A counter printed next to every request turns that into
+something you notice while writing it.
+
+Off entirely in production: the statements array holds SQL text, and this is developer
+feedback rather than a telemetry channel.
+
+---
+
 ## 9. Not built yet
 
 Listed rather than glossed over. None of these is blocked; they are the next passes.
@@ -578,7 +671,8 @@ Listed rather than glossed over. None of these is blocked; they are the next pas
 - **Item-level checklist deadlines.** See §9b: the roadmap phase schema has no due date,
   and deriving one would mean inventing a deadline. The staleness nudge ships instead.
 - **PDF metadata stripping and a quarantine sweep.** See §9c.
-- **`GET /home` and `GET /sync?since=`.** The mobile-shaped aggregates. Not built.
+- **Tombstones for hard-deleted rows.** See §9d: `/sync` reconciles saved-item deletions
+  from an authoritative id list and falls back to a full resync for everything else.
 - **Redis-backed rate limiting.** The limiter is keyed by authenticated user id when a
   bearer token is present, falling back to IP — which is the actual fix for carrier-grade
   NAT. But counters are **per-process**: with more than one instance this under-counts by
@@ -589,7 +683,9 @@ Listed rather than glossed over. None of these is blocked; they are the next pas
   devices — suspended-token rejection on REST *and* WebSocket, a push arriving after
   sign-out reaching nobody, paging past 100 real rows, **any AI feature against a live
   model**, **the reminder timezone conversion against a real Postgres**, and **a real
-  upload against a real bucket** — have **not** been run. The upload suite covers the
+  upload against a real bucket** — have **not** been run. The aggregate endpoints are
+  covered against a mocked database, so the query *shapes* are unverified: the fixed-count
+  and bounded-payload properties are asserted, the SQL itself has never run. The upload suite covers the
   stripper against genuinely encoded images and the route state machine, but every S3 call
   is stubbed. The conversion is `AT TIME ZONE` inside the query, so the unit tests cover the
   rendering half and the claim protocol but not the SQL that decides which rows are due. `seed-pagination.ts`

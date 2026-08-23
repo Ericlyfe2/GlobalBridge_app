@@ -27,7 +27,12 @@ Express, magic-byte validation, lossless EXIF stripping, thumbnails, and short-l
 read URLs. Needs an S3-compatible bucket; without one the endpoints report themselves
 unavailable rather than storing documents somewhere they will be lost.
 
-Not built yet: the aggregate endpoints and the mobile app. See §9.
+The aggregate endpoints are in (§9d): `GET /home` returns the whole first screen in one
+request with a fixed query count and a working ETag, and `GET /sync?since=` returns bounded
+deltas for the local cache. Development requests log their query count so an N+1 is visible
+while it is being written.
+
+Not built yet: Redis-backed rate limiting and the mobile app. See §9.
 
 ## Setup
 

@@ -9,6 +9,7 @@ import { env } from "./env";
 import { errorHandler, notFoundHandler } from "./middleware/error";
 import { csrfProtection } from "./middleware/csrf";
 import { clientVersionGate, maintenanceGate } from "./middleware/client-version";
+import { queryLogger } from "./middleware/query-log";
 
 import { appConfigRouter } from "./routes/app-config";
 import { authRouter } from "./routes/auth";
@@ -19,6 +20,8 @@ import { messagesRouter } from "./routes/messages";
 import { contentRouter } from "./routes/content";
 import { aiRouter } from "./routes/ai";
 import { uploadsRouter } from "./routes/uploads";
+import { homeRouter } from "./routes/home";
+import { syncRouter } from "./routes/sync";
 
 /**
  * The app is built by a factory rather than at module scope so tests can boot it
@@ -50,6 +53,8 @@ function mountRouters(app: Express) {
     ["/content", contentRouter],
     ["/ai", aiRouter],
     ["/uploads", uploadsRouter],
+    ["/home", homeRouter],
+    ["/sync", syncRouter],
   ];
 
   for (const [path, router] of routers) {
@@ -83,6 +88,9 @@ export function createApp(): Express {
       crossOriginResourcePolicy: { policy: "same-site" },
     }),
   );
+
+  // Before the routers, so it wraps the handlers whose queries it counts.
+  app.use(queryLogger);
 
   app.use(compression());
   if (env.NODE_ENV !== "test") app.use(morgan("dev"));

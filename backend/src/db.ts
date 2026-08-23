@@ -1,5 +1,6 @@
 import { Pool } from "pg";
 import Redis from "ioredis";
+import { recordQuery } from "./lib/query-stats";
 
 /**
  * Parameterised SQL only. There is no ORM and no query builder here on purpose:
@@ -28,8 +29,15 @@ if (redis) {
 }
 
 export async function query<T = unknown>(sql: string, params: unknown[] = []): Promise<T[]> {
-  const res = await pool.query(sql, params);
-  return res.rows as T[];
+  const started = Date.now();
+  try {
+    const res = await pool.query(sql, params);
+    return res.rows as T[];
+  } finally {
+    // Counted even when the statement throws: a failing query still cost a
+    // round trip, and an N+1 that errors halfway is still an N+1.
+    recordQuery(sql, Date.now() - started);
+  }
 }
 
 export async function queryOne<T = unknown>(sql: string, params: unknown[] = []): Promise<T | null> {
