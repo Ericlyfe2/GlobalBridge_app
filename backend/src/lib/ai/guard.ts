@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from "express";
 import { todayQuota } from "./usage";
+import { consume, resetLocalRateLimits } from "../rate-limit";
 
 /**
  * The gate every AI endpoint passes through: burst limit, then spend ceiling.
@@ -19,44 +20,23 @@ import { todayQuota } from "./usage";
  * before the model is called, so an over-budget request costs nothing.
  */
 
-type Bucket = { count: number; resetAt: number };
-
 /**
- * Per-feature, per-user burst counters.
+ * Per-feature, per-user burst counters, on the shared limiter.
  *
- * In-process, and therefore per-instance: with N instances a user gets N times
- * the burst allowance. That is acceptable for a burst limit whose job is to
- * stop a runaway client loop, precisely because the *spend* ceiling below it is
- * backed by the database and is not per-instance. The cheap check being
- * approximate is fine when the authoritative one is not.
+ * These used to be an in-process map, which meant a user got N times the
+ * allowance across N instances. That was defensible while the *spend* ceiling
+ * underneath was database-backed and exact — the burst limit is a guard against
+ * a runaway client loop, not the thing that bounds cost. It is still worth
+ * fixing, because a runaway loop multiplied by the instance count is how a
+ * provider rate-limits the whole service rather than one account.
+ *
+ * With Redis these are shared; without it they fall back to per-process with
+ * identical semantics, which is exactly where they were before.
  */
-const buckets = new Map<string, Bucket>();
 
-/** Bound the map: an unbounded key space keyed on user id is a slow leak. */
-const MAX_BUCKETS = 50_000;
-
-function hitLimit(key: string, limit: number, windowMs: number): { ok: boolean; retryAfter: number } {
-  const now = Date.now();
-  const existing = buckets.get(key);
-
-  if (!existing || existing.resetAt <= now) {
-    if (buckets.size >= MAX_BUCKETS) {
-      for (const [k, b] of buckets) if (b.resetAt <= now) buckets.delete(k);
-    }
-    buckets.set(key, { count: 1, resetAt: now + windowMs });
-    return { ok: true, retryAfter: 0 };
-  }
-
-  existing.count += 1;
-  if (existing.count > limit) {
-    return { ok: false, retryAfter: Math.ceil((existing.resetAt - now) / 1000) };
-  }
-  return { ok: true, retryAfter: 0 };
-}
-
-/** Test seam. */
+/** Test seam. Clears the per-process fallback. */
 export function clearAiRateLimits(): void {
-  buckets.clear();
+  resetLocalRateLimits();
 }
 
 export type AiFeature =
@@ -107,13 +87,13 @@ export function aiGuard(feature: AiFeature) {
 
     req.aiFeature = feature;
 
-    const burst = hitLimit(`${feature}:${req.user.sub}`, limit, 60_000);
-    if (!burst.ok) {
-      res.set("Retry-After", String(burst.retryAfter));
+    const burst = await consume(`rl:ai:${feature}:${req.user.sub}`, limit, 60_000);
+    if (!burst.allowed) {
+      res.set("Retry-After", String(burst.retryAfterSeconds));
       return res.status(429).json({
         error: "You are using this tool very quickly. Give it a moment and try again.",
         code: "ai/rate-limited",
-        retry_after: burst.retryAfter,
+        retry_after: burst.retryAfterSeconds,
       });
     }
 

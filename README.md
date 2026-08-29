@@ -32,7 +32,11 @@ request with a fixed query count and a working ETag, and `GET /sync?since=` retu
 deltas for the local cache. Development requests log their query count so an N+1 is visible
 while it is being written.
 
-Not built yet: Redis-backed rate limiting and the mobile app. See §9.
+Rate limiting is shared across instances (§9e): one Redis-backed counter behind both the
+global HTTP limit and the AI burst limits, keyed by account rather than by address, falling
+back to per-process counting when Redis is absent or unreachable.
+
+Not built yet: the mobile app. See §9.
 
 ## Setup
 

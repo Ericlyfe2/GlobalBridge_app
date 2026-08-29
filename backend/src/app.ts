@@ -3,13 +3,13 @@ import cors from "cors";
 import helmet from "helmet";
 import morgan from "morgan";
 import compression from "compression";
-import rateLimit from "express-rate-limit";
 
 import { env } from "./env";
 import { errorHandler, notFoundHandler } from "./middleware/error";
 import { csrfProtection } from "./middleware/csrf";
 import { clientVersionGate, maintenanceGate } from "./middleware/client-version";
 import { queryLogger } from "./middleware/query-log";
+import { httpRateLimiter } from "./middleware/rate-limit";
 
 import { appConfigRouter } from "./routes/app-config";
 import { authRouter } from "./routes/auth";
@@ -121,56 +121,7 @@ export function createApp(): Express {
     }),
   );
 
-  /**
-   * Rate limiting, keyed by authenticated user when there is one.
-   *
-   * Keying purely by IP is what forced the global budget up to an
-   * uncomfortably high number: this audience sits behind campus and dorm NAT,
-   * and carrier-grade NAT puts an entire city's mobile subscribers behind a
-   * handful of addresses. A per-IP budget there is shared by strangers, so any
-   * limit tight enough to matter locks out people who did nothing.
-   *
-   * Reading the user id off the *unverified* token is deliberate and safe: this
-   * runs before auth, and a forged token only ever moves the request into a
-   * bucket the attacker chose -- it cannot raise anyone's limit, and the
-   * request still has to pass real verification afterwards. The alternative,
-   * verifying here, would mean a signature check on every rejected request.
-   *
-   * NOTE: counters are per-process. With more than one instance this
-   * under-counts by the instance count; backing it with Redis is the fix and is
-   * not done here.
-   */
-  app.use(
-    rateLimit({
-      windowMs: 15 * 60 * 1000,
-      max: 1200,
-      standardHeaders: true,
-      legacyHeaders: false,
-      keyGenerator: (req) => {
-        const header = req.headers.authorization;
-        if (header?.startsWith("Bearer ")) {
-          const parts = header.slice(7).split(".");
-          if (parts.length === 3) {
-            try {
-              const claims = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8"));
-              if (typeof claims.user_id === "string") return `u:${claims.user_id}`;
-              if (typeof claims.sub === "string") return `u:${claims.sub}`;
-            } catch {
-              /* fall through to IP */
-            }
-          }
-        }
-        return `ip:${req.ip}`;
-      },
-      handler: (_req, res) => {
-        res.set("Retry-After", "60");
-        res.status(429).json({
-          error: "You are doing that too quickly. Try again in a minute.",
-          code: "rate/limited",
-        });
-      },
-    }),
-  );
+  app.use(httpRateLimiter);
 
   app.use(csrfProtection);
   app.use(clientVersionGate);

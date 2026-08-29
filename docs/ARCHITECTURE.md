@@ -95,14 +95,14 @@ backend/src/
   db.ts, env.ts             pool + optional Redis; fail-fast config
   lib/         version, pagination, i18n, deep-links, sanitize, push, firebase-admin
   lib/ai/      client, config, guard, usage, pricing, prompts, fallbacks, rag, json
-  middleware/  auth, client-version, csrf, error
+  middleware/  auth, client-version, csrf, error, rate-limit, query-log
   routes/      app-config, auth, users, housing, opportunities, messages,
                content, uploads, home, sync
   routes/ai/   chat, scam-check, doc-check, visa-roadmap, readiness,
                score-essay, compare-countries, translate, conversations
   lib/reminders/ store, time, bookings, opportunities, checklists
   lib/uploads/   storage, file-type, metadata, process
-  lib/           etag, query-stats
+  lib/           etag, query-stats, rate-limit
   scheduler.ts             node-cron wiring, overlap guard
   scripts/     seed-pagination.ts
 db/migrations/              node-pg-migrate, SQL, ordered
@@ -664,6 +664,73 @@ feedback rather than a telemetry channel.
 
 ---
 
+## 9e. Rate limiting
+
+One counter behind both limiters — the global HTTP limit and the AI per-feature burst
+limit — in `lib/rate-limit.ts`. Redis-backed when `REDIS_URL` is set, per-process otherwise,
+with identical semantics either way.
+
+### Keyed by account, not by address
+
+Keying purely by IP is what forced the global budget up to an uncomfortably high number.
+This audience sits behind campus and dorm NAT, and carrier-grade NAT puts an entire city's
+mobile subscribers behind a handful of addresses — so any per-IP limit tight enough to stop
+abuse also locks out hundreds of people who did nothing. A per-account key makes the budget
+follow the person, which is the thing actually worth bounding. Anonymous traffic still falls
+back to the address, because there is nothing else to key on.
+
+The account id is read off the **unverified** token, before authentication runs. That is
+deliberate and safe: a forged token only moves the request into a bucket the attacker chose.
+It cannot raise anyone's allowance, and the request still has to pass real verification
+afterwards. Verifying here instead would mean a signature check on every request we are
+about to reject.
+
+IPv6 is masked to its /64 in the fallback key. A residential IPv6 allocation is routinely a
+/64 or larger, so keying on the full address lets one connection walk through billions of
+distinct keys and never hit a limit — the limiter would be decorative for exactly the users
+most likely to have IPv6. IPv4 is used whole, since NAT already makes those shared and
+masking further would punish a whole campus for one caller.
+
+### Why per-instance counting had to go
+
+In-process counters mean a caller gets N times the allowance across N instances, and the
+limit silently means something different after every scale-up. For the AI burst limiter that
+was defensible — it guards against a runaway client loop, and the thing that actually bounds
+cost is the daily spend ceiling, which is computed from a durable ledger and cannot be gamed
+this way. It was still worth fixing: a runaway loop multiplied by the instance count is how
+a provider rate-limits the whole service rather than one account.
+
+### Fixed window, and the burst it permits
+
+A fixed window lets a caller send `limit` requests at the end of one window and `limit` more
+at the start of the next — a 2x burst across the boundary. A sliding log prevents that, at
+the cost of storing a timestamp per request per key.
+
+The 2x gap is accepted because these limits are abuse backstops rather than capacity
+reservations, and the real cost bound is the AI daily ceiling, which window alignment cannot
+touch. Paying per-request storage to close a 2x gap in a backstop is the wrong trade.
+
+The increment and its TTL run in one Lua script. The naive two-command version has a real
+failure mode: a process that dies between `INCR` and `PEXPIRE` leaves a key with no expiry,
+and that caller is limited forever. The script also re-checks `PTTL` on every hit, which
+self-heals any key that lost its expiry anyway.
+
+### Failure is open
+
+If Redis is unreachable the hit is counted in-process and the request proceeds. Failing
+closed would turn a cache outage into a total outage — every user locked out of their visa
+checklist because a counter was unavailable. The blast radius of failing open is that limits
+become per-instance for the duration, which is exactly where they were before Redis existed.
+
+### The client half
+
+`GET /app-config` returns `minPollIntervalSeconds`, and every 429 carries `Retry-After` plus
+a `retry_after` field in the body. The app is expected to honour both and back off
+exponentially. That half does not exist yet — it belongs to the client, which does not exist
+yet either.
+
+---
+
 ## 9. Not built yet
 
 Listed rather than glossed over. None of these is blocked; they are the next passes.
@@ -673,11 +740,10 @@ Listed rather than glossed over. None of these is blocked; they are the next pas
 - **PDF metadata stripping and a quarantine sweep.** See §9c.
 - **Tombstones for hard-deleted rows.** See §9d: `/sync` reconciles saved-item deletions
   from an authoritative id list and falls back to a full resync for everything else.
-- **Redis-backed rate limiting.** The limiter is keyed by authenticated user id when a
-  bearer token is present, falling back to IP — which is the actual fix for carrier-grade
-  NAT. But counters are **per-process**: with more than one instance this under-counts by
-  the instance count.
-- **The mobile client itself.** No `mobile/` package yet. This pass is the API.
+- **Client-side backoff.** The server sends `Retry-After` and `minPollIntervalSeconds`;
+  honouring them is the client's half of §9e and does not exist yet.
+- **The mobile client itself.** A `mobile/` workspace has been scaffolded outside this
+  pass; the API is what these notes describe.
 - **Live verification.** The suite is unit and route-handler level and runs with Postgres,
   Firebase and OpenAI mocked. The checks that need a real database, a real key and two real
   devices — suspended-token rejection on REST *and* WebSocket, a push arriving after
