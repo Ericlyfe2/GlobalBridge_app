@@ -196,6 +196,26 @@ CREATE TABLE IF NOT EXISTS visa_checklists (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Identity and credential documents.
+--
+-- Part of the shared schema rather than something this service invented: the
+-- web platform's verification flow writes here too. 0006 extends it with the
+-- pre-signed upload state machine, which is why it has to exist by then.
+CREATE TABLE IF NOT EXISTS user_documents (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+    type VARCHAR(50) NOT NULL,
+    url TEXT,
+    file_name VARCHAR(255),
+    mime_type VARCHAR(100),
+    verified BOOLEAN DEFAULT FALSE,
+    verified_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    verified_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_documents_user ON user_documents(user_id);
+
 CREATE TABLE IF NOT EXISTS push_subscriptions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID REFERENCES users(id) ON DELETE CASCADE,

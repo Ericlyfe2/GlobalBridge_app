@@ -4,6 +4,7 @@ import { query, queryOne } from "../db";
 import { requireAuth } from "../middleware/auth";
 import { HttpError } from "../middleware/error";
 import { paginationSchema, listEnvelope, totalFromWindow } from "../lib/pagination";
+import { cursorExpr, cursorSchema, dateToCursor } from "../lib/cursor";
 import { dispatchNotification } from "../lib/push";
 import { routes } from "../lib/deep-links";
 import { notifyUsers } from "../ws";
@@ -80,7 +81,7 @@ messagesRouter.get("/", requireAuth, async (req, res, next) => {
  * millisecond cannot straddle a page boundary and vanish.
  */
 const sinceSchema = z.object({
-  cursor: z.coerce.date().optional(),
+  cursor: cursorSchema.optional(),
   limit: z.coerce.number().int().min(1).max(200).default(100),
 });
 
@@ -91,14 +92,15 @@ messagesRouter.get("/since", requireAuth, async (req, res, next) => {
 
     // No cursor means a first sync, not "give me everything ever". An unbounded
     // backfill over a metered connection is a bill, not a feature.
-    const since = cursor ?? new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const since = cursor ?? dateToCursor(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000));
 
-    const rows = await query(
-      `SELECT m.id, m.conversation_id, m.sender_id, m.body, m.is_read, m.created_at
+    const rows = await query<{ cursor: string }>(
+      `SELECT m.id, m.conversation_id, m.sender_id, m.body, m.is_read, m.created_at,
+              ${cursorExpr("m.created_at")} AS cursor
          FROM messages m
          JOIN conversations c ON c.id = m.conversation_id
         WHERE (c.participant_a = $1 OR c.participant_b = $1)
-          AND m.created_at > $2
+          AND m.created_at > $2::timestamptz
         ORDER BY m.created_at ASC, m.id ASC
         LIMIT $3`,
       [me, since, limit],
@@ -106,12 +108,14 @@ messagesRouter.get("/since", requireAuth, async (req, res, next) => {
 
     // The next cursor is the last row's timestamp, not "now": using the server
     // clock would skip anything written between the query and the response.
-    const last = rows[rows.length - 1] as { created_at: Date } | undefined;
+    // Full microsecond precision -- see lib/cursor.ts for why a Date here would
+    // re-deliver the same tail on every call.
+    const last = rows[rows.length - 1];
 
     res.set("Cache-Control", "no-store");
     res.json({
-      items: rows,
-      cursor: (last?.created_at ?? since).toISOString(),
+      items: rows.map(({ cursor: _c, ...rest }) => rest),
+      cursor: last?.cursor ?? since,
       // A full page almost certainly means there is more; the client loops
       // until this is false rather than assuming one call reconciles.
       hasMore: rows.length === limit,

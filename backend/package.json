@@ -13,7 +13,8 @@
     "migrate": "node-pg-migrate --migrations-dir ../db/migrations --migration-file-language sql --envPath ../.env up",
     "migrate:status": "node-pg-migrate --migrations-dir ../db/migrations --migration-file-language sql --envPath ../.env --dry-run up",
     "seed:pagination": "tsx src/scripts/seed-pagination.ts",
-    "migrate:down": "node-pg-migrate --migrations-dir ../db/migrations --migration-file-language sql --envPath ../.env down 1"
+    "migrate:down": "node-pg-migrate --migrations-dir ../db/migrations --migration-file-language sql --envPath ../.env down 1",
+    "test:live": "vitest run --config vitest.live.config.mts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1116.0",
@@ -46,6 +47,8 @@
     "@types/supertest": "^6.0.2",
     "@types/web-push": "^3.6.4",
     "@types/ws": "^8.5.13",
+    "embedded-postgres": "^16.14.0-beta.17",
+    "ioredis-mock": "^8.13.1",
     "supertest": "^7.0.0",
     "tsx": "^4.19.2",
     "typescript": "^5.6.3",

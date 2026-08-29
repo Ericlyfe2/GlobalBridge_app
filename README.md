@@ -36,6 +36,11 @@ Rate limiting is shared across instances (§9e): one Redis-backed counter behind
 global HTTP limit and the AI burst limits, keyed by account rather than by address, falling
 back to per-process counting when Redis is absent or unreachable.
 
+A live verification suite (`npm run test:live`) boots a real PostgreSQL 16, applies the real
+migrations, and runs the real handlers against it (§9f). It found two bugs the mocked suites
+could not see: a table no migration created, and millisecond cursor truncation that made
+every delta endpoint re-deliver the same rows forever.
+
 Not built yet: the mobile app. See §9.
 
 ## Setup

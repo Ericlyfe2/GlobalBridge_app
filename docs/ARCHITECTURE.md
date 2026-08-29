@@ -105,6 +105,7 @@ backend/src/
   lib/           etag, query-stats, rate-limit
   scheduler.ts             node-cron wiring, overlap guard
   scripts/     seed-pagination.ts
+  __tests__/live/  real-Postgres suite (npm run test:live)
 db/migrations/              node-pg-migrate, SQL, ordered
 ```
 
@@ -731,6 +732,73 @@ yet either.
 
 ---
 
+## 9f. Live verification
+
+`npm run test:live` boots a real PostgreSQL 16 in-process (`embedded-postgres`), applies the
+real migrations with the real tool, and runs the real handlers against it. Only Firebase is
+mocked, because verifying an ID token needs credentials this environment does not have.
+
+It exists because every other suite mocks `query()`, and a mocked `query()` accepts a
+statement that references a column no migration creates, a window function the planner would
+reject, and a timezone conversion that does the opposite of what was intended — all green.
+
+### What it found
+
+**A table no migration created.** `0006_uploads.sql` alters `user_documents`, and nothing
+ever created it — the baseline reconciliation simply omitted it. Against a fresh database
+the migrations aborted, and the upload feature could never have worked. Every mocked upload
+test passed throughout. Fixed by adding the table to `0001`, where the rest of the shared
+schema lives.
+
+**Cursor truncation in all three delta endpoints.** PostgreSQL stores `timestamptz` with
+microsecond precision; the `pg` driver parses it into a JS `Date`, which has millisecond
+precision. A cursor built from a row was therefore up to 999 microseconds *earlier* than the
+row it pointed past, so `WHERE created_at > $cursor` matched that row again — and again on
+every subsequent call, because each new cursor was truncated the same way. `/sync`,
+`/messages/since` and `/content/notifications?since=` all re-delivered the same tail forever
+and never advanced.
+
+Invisible in the mocked suites for a specific reason: the fixtures were JS `Date`s with no
+sub-millisecond component, so the truncation was a no-op and the round trip looked clean.
+It only appears against a real database. Fixed in `lib/cursor.ts` — cursors are now
+microsecond-precision strings produced by Postgres, never parsed into a `Date`, and cast
+back to `timestamptz` in the comparison.
+
+### What it verifies
+
+- Migrations apply to an empty database, and re-apply without error — the idempotence claim
+  in `0001` is tested by re-running the file itself, not just by the ledger skipping it.
+- Every column the handlers select exists, including the drift-item timezone columns and the
+  upload state machine.
+- The reminder timezone conversion, against Postgres's own IANA database: a Vancouver
+  booking resolves to a different UTC instant in January than in September (the assertion
+  that fails for any fixed-offset implementation), half-hour and 45-minute zones are exact,
+  an unknown zone degrades to UTC instead of aborting the pass, and both participants get
+  the same instant rendered on different clocks.
+- `/home` and `/sync` run every statement for real, including `jsonb_array_length`,
+  `array_length`, `COUNT(*) OVER()` and the correlated unread-count subqueries.
+- Paging through 150 housing rows reaches the end with no duplicate and no gap.
+- A literal `%` in a search box matches percent signs rather than the whole table.
+
+### What is still unverified
+
+- **The AI surface.** `0004_ai_surface.sql` needs `pgvector`, which the embedded PostgreSQL
+  build does not ship. The AI schema and every RAG query remain untested against a real
+  database. Nothing else depends on those tables, so the migration is excluded from the live
+  run rather than blocking it.
+- **Firebase.** Token verification, revocation checking and FCM delivery all need real
+  credentials. `requireAuth` is mocked at the `verifyIdToken` boundary; everything below it
+  is real.
+- **Object storage.** The upload pipeline's image work — sniffing, stripping, thumbnailing —
+  runs against genuinely encoded images in the fast suite, but every S3 call is stubbed. No
+  upload has gone to a real bucket.
+- **Redis.** The Lua counter script is executed by a real Lua interpreter against an
+  emulated command set, which proves the script is valid and branches correctly, including
+  the lost-expiry self-heal. It is not real Redis: no network, no eviction, emulated TTLs.
+- **Two devices.** Multi-device push and socket behaviour still needs two real handsets.
+
+---
+
 ## 9. Not built yet
 
 Listed rather than glossed over. None of these is blocked; they are the next passes.
@@ -744,14 +812,9 @@ Listed rather than glossed over. None of these is blocked; they are the next pas
   honouring them is the client's half of §9e and does not exist yet.
 - **The mobile client itself.** A `mobile/` workspace has been scaffolded outside this
   pass; the API is what these notes describe.
-- **Live verification.** The suite is unit and route-handler level and runs with Postgres,
-  Firebase and OpenAI mocked. The checks that need a real database, a real key and two real
-  devices — suspended-token rejection on REST *and* WebSocket, a push arriving after
-  sign-out reaching nobody, paging past 100 real rows, **any AI feature against a live
-  model**, **the reminder timezone conversion against a real Postgres**, and **a real
-  upload against a real bucket** — have **not** been run. The aggregate endpoints are
-  covered against a mocked database, so the query *shapes* are unverified: the fixed-count
-  and bounded-payload properties are asserted, the SQL itself has never run. The upload suite covers the
+- **Live verification.** Partly done — see §9f for what `npm run test:live` covers and the
+  five areas it still cannot reach (pgvector, Firebase, object storage, real Redis, two
+  physical devices). The upload suite covers the
   stripper against genuinely encoded images and the route state machine, but every S3 call
   is stubbed. The conversion is `AT TIME ZONE` inside the query, so the unit tests cover the
   rendering half and the claim protocol but not the SQL that decides which rows are due. `seed-pagination.ts`

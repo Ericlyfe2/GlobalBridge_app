@@ -2,6 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { query } from "../db";
 import { requireAuth } from "../middleware/auth";
+import { cursorExpr, cursorSchema, cursorToDate, dateToCursor, newestCursor } from "../lib/cursor";
 
 export const syncRouter = Router();
 
@@ -50,6 +51,12 @@ export const syncRouter = Router();
  * response cannot describe. Past the horizon the honest move is to tell the
  * client to start over rather than to hand it a delta that quietly leaves stale
  * rows behind.
+ *
+ * ── Cursor precision ──────────────────────────────────────────────────────
+ * Cursors are microsecond-precision strings and are never turned into JS
+ * `Date`s. See lib/cursor.ts: a `Date` truncates Postgres's microseconds, and a
+ * truncated cursor re-matches the row it was derived from on every subsequent
+ * call — an infinite re-delivery loop that a mocked test cannot see.
  */
 
 /** Beyond this, a delta cannot be trusted to describe what changed. */
@@ -62,64 +69,54 @@ const COLLECTION_LIMIT = 200;
 const MAX_SAVED_IDS = 1000;
 
 const querySchema = z.object({
-  since: z.coerce.date().optional(),
+  since: cursorSchema.optional(),
   limit: z.coerce.number().int().min(1).max(COLLECTION_LIMIT).default(100),
 });
 
-/** The newest timestamp across every returned row, or the cursor we started from. */
-function nextCursor(fallback: Date, ...collections: { updated: string | Date }[][]): string {
-  let newest = fallback.getTime();
-  for (const rows of collections) {
-    for (const row of rows) {
-      const t = new Date(row.updated).getTime();
-      if (Number.isFinite(t) && t > newest) newest = t;
-    }
-  }
-  return new Date(newest).toISOString();
-}
+type Row = { cursor?: string };
 
 syncRouter.get("/", requireAuth, async (req, res, next) => {
   try {
     const { since, limit } = querySchema.parse(req.query);
     const userId = req.user!.sub;
 
-    const horizon = new Date(Date.now() - MAX_SYNC_AGE_DAYS * 24 * 60 * 60 * 1000);
+    const horizon = dateToCursor(new Date(Date.now() - MAX_SYNC_AGE_DAYS * 24 * 60 * 60 * 1000));
 
     // No cursor is a first sync, not "everything ever". An unbounded backfill
     // over a metered connection is a bill, not a feature.
-    const fullResync = !since || since < horizon;
-    const cursor = fullResync ? horizon : since;
+    const fullResync = !since || cursorToDate(since) < cursorToDate(horizon);
+    const cursor = fullResync ? horizon : since!;
 
     const [notifications, messages, conversations, checklists, savedChanged, savedIds] =
       await Promise.all([
-        query<{ updated: string }>(
+        query<Row>(
           `SELECT id, kind, title, body, deep_link, data, read, locale, created_at,
-                  created_at AS updated
+                  ${cursorExpr("created_at")} AS cursor
              FROM notifications
-            WHERE user_id = $1 AND created_at > $2
+            WHERE user_id = $1 AND created_at > $2::timestamptz
             ORDER BY created_at ASC, id ASC
             LIMIT $3`,
           [userId, cursor, limit],
         ),
 
-        query<{ updated: string }>(
+        query<Row>(
           `SELECT m.id, m.conversation_id, m.sender_id, m.body, m.is_read, m.created_at,
-                  m.created_at AS updated
+                  ${cursorExpr("m.created_at")} AS cursor
              FROM messages m
              JOIN conversations c ON c.id = m.conversation_id
             WHERE (c.participant_a = $1 OR c.participant_b = $1)
-              AND m.created_at > $2
+              AND m.created_at > $2::timestamptz
             ORDER BY m.created_at ASC, m.id ASC
             LIMIT $3`,
           [userId, cursor, limit],
         ),
 
-        query<{ updated: string }>(
+        query<Row>(
           `SELECT c.id, c.participant_a, c.participant_b, c.last_message_at, c.created_at,
-                  c.last_message_at AS updated
+                  ${cursorExpr("c.last_message_at")} AS cursor
              FROM conversations c
             WHERE (c.participant_a = $1 OR c.participant_b = $1)
-              AND c.last_message_at > $2
+              AND c.last_message_at > $2::timestamptz
             ORDER BY c.last_message_at ASC, c.id ASC
             LIMIT $3`,
           [userId, cursor, limit],
@@ -128,21 +125,22 @@ syncRouter.get("/", requireAuth, async (req, res, next) => {
         // Checklist state is explicitly cacheable per the offline design: it is
         // the user's own progress and it is useful with no connection at all,
         // which is the point of ticking items off in an embassy queue.
-        query<{ updated: string }>(
+        query<Row>(
           `SELECT id, destination_country, visa_type, items, completed_items,
                   created_at, updated_at,
-                  COALESCE(updated_at, created_at) AS updated
+                  ${cursorExpr("COALESCE(updated_at, created_at)")} AS cursor
              FROM visa_checklists
-            WHERE user_id = $1 AND COALESCE(updated_at, created_at) > $2
+            WHERE user_id = $1 AND COALESCE(updated_at, created_at) > $2::timestamptz
             ORDER BY COALESCE(updated_at, created_at) ASC, id ASC
             LIMIT $3`,
           [userId, cursor, limit],
         ),
 
-        query<{ updated: string }>(
-          `SELECT id, item_type, item_id, created_at, created_at AS updated
+        query<Row>(
+          `SELECT id, item_type, item_id, created_at,
+                  ${cursorExpr("created_at")} AS cursor
              FROM saved_items
-            WHERE user_id = $1 AND created_at > $2
+            WHERE user_id = $1 AND created_at > $2::timestamptz
             ORDER BY created_at ASC, id ASC
             LIMIT $3`,
           [userId, cursor, limit],
@@ -161,12 +159,15 @@ syncRouter.get("/", requireAuth, async (req, res, next) => {
     // from its cache.
     const savedIdsComplete = savedIds.length <= MAX_SAVED_IDS;
 
+    const strip = <T extends Row>(rows: T[]) =>
+      rows.map(({ cursor: _cursor, ...rest }) => rest);
+
     const collections = {
-      notifications,
-      messages,
-      conversations,
-      checklists,
-      saved_items: savedChanged,
+      notifications: strip(notifications),
+      messages: strip(messages),
+      conversations: strip(conversations),
+      checklists: strip(checklists),
+      saved_items: strip(savedChanged),
     };
 
     // A full page almost certainly means there is more. The client loops on the
@@ -175,7 +176,7 @@ syncRouter.get("/", requireAuth, async (req, res, next) => {
 
     res.set("Cache-Control", "no-store");
     res.json({
-      cursor: nextCursor(
+      cursor: newestCursor(
         cursor,
         notifications,
         messages,

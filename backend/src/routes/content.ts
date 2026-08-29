@@ -3,6 +3,7 @@ import { z } from "zod";
 import { query, queryOne } from "../db";
 import { requireAuth } from "../middleware/auth";
 import { paginationSchema, listEnvelope, totalFromWindow } from "../lib/pagination";
+import { cursorExpr, cursorSchema } from "../lib/cursor";
 
 export const contentRouter = Router();
 
@@ -20,7 +21,7 @@ export const contentRouter = Router();
  * has no way to know that from the socket alone.
  */
 const listSchema = paginationSchema.extend({
-  since: z.coerce.date().optional(),
+  since: cursorSchema.optional(),
   unread_only: z.coerce.boolean().default(false),
   kind: z
     .enum(["message", "deadline", "opportunity", "housing", "job", "mentor", "security", "document", "info"])
@@ -43,23 +44,26 @@ contentRouter.get("/notifications", requireAuth, async (req, res, next) => {
     }
 
     if (p.since) {
-      filters.push(`n.created_at > $${i++}`);
+      filters.push(`n.created_at > $${i++}::timestamptz`);
       values.push(p.since);
 
-      const rows = await query(
-        `SELECT n.id, n.kind, n.title, n.body, n.deep_link, n.data, n.read, n.locale, n.created_at
+      const rows = await query<{ cursor: string }>(
+        `SELECT n.id, n.kind, n.title, n.body, n.deep_link, n.data, n.read, n.locale, n.created_at,
+                ${cursorExpr("n.created_at")} AS cursor
            FROM notifications n
           WHERE ${filters.join(" AND ")}
           ORDER BY n.created_at ASC, n.id ASC
           LIMIT $${i++}`,
         [...values, p.limit],
       );
-      const last = rows[rows.length - 1] as { created_at: Date } | undefined;
+      // Microsecond precision. A millisecond-truncated cursor re-matches the
+      // row it came from, so the client re-downloads the same tail forever.
+      const last = rows[rows.length - 1];
 
       res.set("Cache-Control", "no-store");
       return res.json({
-        items: rows,
-        cursor: (last?.created_at ?? p.since).toISOString(),
+        items: rows.map(({ cursor: _c, ...rest }) => rest),
+        cursor: last?.cursor ?? p.since,
         hasMore: rows.length === p.limit,
       });
     }

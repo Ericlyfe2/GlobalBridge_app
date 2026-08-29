@@ -339,10 +339,12 @@ describe("GET /sync", () => {
   });
 
   it("advances the cursor to the newest row, not to now", async () => {
-    const newest = "2026-08-20T10:00:00.000Z";
+    // Microsecond precision, as Postgres renders it. A millisecond-truncated
+    // cursor re-matches the row it came from -- see lib/cursor.ts.
+    const newest = "2026-08-20T10:00:00.000000Z";
     syncRows.notifications = [
-      { id: "n1", created_at: "2026-08-20T09:00:00.000Z", updated: "2026-08-20T09:00:00.000Z" },
-      { id: "n2", created_at: newest, updated: newest },
+      { id: "n1", created_at: "2026-08-20T09:00:00.000Z", cursor: "2026-08-20T09:00:00.000000Z" },
+      { id: "n2", created_at: "2026-08-20T10:00:00.000Z", cursor: newest },
     ];
 
     const since = new Date("2026-08-19T00:00:00Z").toISOString();
@@ -361,6 +363,7 @@ describe("GET /sync", () => {
       .get(`/api/v1/sync?since=${encodeURIComponent(since.toISOString())}`)
       .set("Authorization", AUTH);
 
+    // Echoed back unchanged, still parseable as the same instant.
     expect(new Date(res.body.cursor).getTime()).toBe(since.getTime());
   });
 
@@ -389,7 +392,7 @@ describe("GET /sync", () => {
   it("flags more work when a collection fills its page", async () => {
     syncRows.messages = Array.from({ length: 100 }, (_, i) => ({
       id: `m${i}`,
-      updated: "2026-08-20T10:00:00.000Z",
+      cursor: "2026-08-20T10:00:00.000000Z",
     }));
 
     const res = await request(app).get("/api/v1/sync").set("Authorization", AUTH);
