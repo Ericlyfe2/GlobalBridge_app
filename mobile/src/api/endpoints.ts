@@ -333,6 +333,100 @@ export const fetchAiUsage = () =>
     resets_at: string;
   }>("/ai/usage/today");
 
+// ── Visa Roadmap ──────────────────────────────────────────────────────────
+
+export type RoadmapPhase = {
+  id: string;
+  title: string;
+  timeframe: string;
+  cost: string;
+  documents: string[];
+  tip: string;
+};
+
+export type RoadmapResult = {
+  title: string;
+  totalWeeks: number;
+  phases: RoadmapPhase[];
+  /** True when the model was unreachable and this is the generic fallback. */
+  degraded?: boolean;
+  /** True even on a real answer: costs and timeframes are estimates, never quoted fees. */
+  estimates_only?: boolean;
+};
+
+export const generateRoadmap = (body: {
+  origin: string;
+  destination: string;
+  purpose?: "study" | "work" | "settle";
+}) => post<RoadmapResult>("/ai/visa-roadmap", body);
+
+// ── Readiness Score ───────────────────────────────────────────────────────
+
+export type ReadinessPillarKey = "documents" | "finances" | "housing" | "job" | "community";
+
+export type ReadinessResult = {
+  overall: number;
+  pillars: Array<{ key: ReadinessPillarKey; label: string; score: number; note: string }>;
+  actions: Array<{ title: string; detail: string; pillar: ReadinessPillarKey }>;
+};
+
+export const scoreReadiness = (body: {
+  pillars?: Partial<Record<ReadinessPillarKey, number>>;
+  destination?: string;
+  purpose?: string;
+}) => post<ReadinessResult>("/ai/readiness", body);
+
+// ── Essay / SoP review ────────────────────────────────────────────────────
+
+export type EssaySection = {
+  id: "hook" | "arc" | "ev" | "fit" | "voice" | "close";
+  label: string;
+  score: number;
+  tone: "ok" | "warn" | "fail";
+  comment: string;
+};
+
+export type EssayInline = { quote: string; comment: string; severity: "ok" | "warn" | "fail" };
+
+export type EssayResult = {
+  overall: number;
+  sections: EssaySection[];
+  inlines: EssayInline[];
+  tips: string[];
+};
+
+export const scoreEssay = (body: {
+  essay: string;
+  docType?: "sop" | "personal_statement" | "scholarship_essay" | "motivation_letter" | "cover_letter";
+  target?: string;
+}) => post<EssayResult>("/ai/score-essay", body);
+
+// ── Country Compare ───────────────────────────────────────────────────────
+
+export type CompareCategory = { label: string; country1: string; country2: string; icon: string };
+
+export type CompareResult = {
+  categories: CompareCategory[];
+  summary: string;
+  verdict: string;
+  country1Name: string;
+  country2Name: string;
+  country1Code: string;
+  country2Code: string;
+  estimates_only?: boolean;
+};
+
+export const compareCountries = (body: { country1: string; country2: string; lang?: string }) =>
+  post<CompareResult>("/ai/compare-countries", body);
+
+// ── Translate ─────────────────────────────────────────────────────────────
+
+export const translateTexts = (body: { texts: string[]; target: string }) =>
+  post<{ translations: string[]; target: string; degraded?: boolean; note?: string }>(
+    "/ai/translate",
+    body,
+  );
+
 // ── Device tokens ─────────────────────────────────────────────────────────
 
 export const registerDeviceToken = (body: {

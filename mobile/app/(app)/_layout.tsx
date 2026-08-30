@@ -90,8 +90,6 @@ export default function AppLayout() {
       <Tabs.Screen name="offline" options={{ href: null }} />
       <Tabs.Screen name="documents" options={{ href: null }} />
       <Tabs.Screen name="opportunities" options={{ href: null }} />
-      <Tabs.Screen name="ai" options={{ href: null }} />
-      <Tabs.Screen name="ai/chat" options={{ href: null }} />
       <Tabs.Screen name="ai/scam-check" options={{ href: null }} />
       <Tabs.Screen name="ai/doc-check" options={{ href: null }} />
       <Tabs.Screen name="ai/visa-roadmap" options={{ href: null }} />

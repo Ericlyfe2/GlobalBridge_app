@@ -1,17 +1,21 @@
+import React, { useState } from "react";
+import { View, ScrollView, TextInput, Pressable } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+
+import { useTheme } from "@/src/theme/ThemeProvider";
+import { GBText, Card, Badge, Button } from "@/src/components/ui";
+import { translateTexts } from "@/src/api/endpoints";
+import { MIN_TOUCH } from "@/src/theme/tokens";
+
 /**
  * Translate.
  *
- * POST /ai/translate — batch UI string translation.
- * Returns source strings when unavailable (§9a).
+ * Batch UI-string translation, the same endpoint the app itself would use to
+ * localise its own screens once i18n is wired. When it cannot run, the server
+ * returns the source strings rather than an error — a screen with English text
+ * on it beats one with nothing on it — and that degraded state is shown here
+ * rather than presented as a real translation.
  */
-
-import { useState } from "react";
-import {
-  View, Text, TextInput, TouchableOpacity, StyleSheet,
-  ScrollView, ActivityIndicator,
-} from "react-native";
-import { Ionicons } from "@expo/vector-icons";
-import { post } from "@/src/api/client";
 
 const LANGUAGES = [
   { code: "fr", label: "French" },
@@ -29,6 +33,9 @@ const LANGUAGES = [
 ];
 
 export default function TranslateScreen() {
+  const { colors, space, radius } = useTheme();
+  const insets = useSafeAreaInsets();
+
   const [input, setInput] = useState("");
   const [target, setTarget] = useState("fr");
   const [result, setResult] = useState<string[] | null>(null);
@@ -40,12 +47,9 @@ export default function TranslateScreen() {
     if (texts.length === 0) return;
     setLoading(true);
     try {
-      const res = await post<{ translations: string[]; degraded?: boolean }>(
-        "/ai/translate",
-        { texts, target },
-      );
+      const res = await translateTexts({ texts, target });
       setResult(res.translations);
-      setDegraded(!!res.degraded);
+      setDegraded(Boolean(res.degraded));
     } catch {
       setResult(texts);
       setDegraded(true);
@@ -55,91 +59,89 @@ export default function TranslateScreen() {
   };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <View style={styles.header}>
-        <Ionicons name="language" size={28} color="#F97316" />
-        <Text style={styles.headerTitle}>Translate</Text>
-      </View>
+    <ScrollView
+      style={{ flex: 1, backgroundColor: colors.bg }}
+      contentContainerStyle={{
+        padding: space.lg,
+        paddingTop: insets.top + space.md,
+        paddingBottom: space.xxl,
+        gap: space.md,
+      }}
+      keyboardShouldPersistTaps="handled"
+    >
+      <GBText variant="title">Translate</GBText>
 
-      <Text style={styles.label}>Target language</Text>
-      <View style={styles.langRow}>
-        {LANGUAGES.map((lang) => (
-          <TouchableOpacity
-            key={lang.code}
-            style={[styles.langChip, target === lang.code && styles.langChipActive]}
-            onPress={() => setTarget(lang.code)}
-          >
-            <Text style={[styles.langText, target === lang.code && styles.langTextActive]}>
-              {lang.label}
-            </Text>
-          </TouchableOpacity>
-        ))}
+      <View style={{ gap: space.sm }}>
+        <GBText variant="label">Target language</GBText>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm }}>
+          {LANGUAGES.map((lang) => {
+            const active = lang.code === target;
+            return (
+              <Pressable
+                key={lang.code}
+                onPress={() => setTarget(lang.code)}
+                accessibilityRole="radio"
+                accessibilityState={{ selected: active }}
+                style={{
+                  minHeight: MIN_TOUCH,
+                  justifyContent: "center",
+                  paddingHorizontal: space.md,
+                  borderRadius: radius.pill,
+                  backgroundColor: active ? colors.claysoft : colors.surface,
+                  borderWidth: 1,
+                  borderColor: active ? colors.clay : colors.border,
+                }}
+              >
+                <GBText variant="small" style={{ color: active ? colors.clay6 : colors.ink6 }}>
+                  {lang.label}
+                </GBText>
+              </Pressable>
+            );
+          })}
+        </View>
       </View>
 
       <TextInput
-        style={styles.textInput}
-        placeholder="Enter text to translate (one line per string)..."
-        placeholderTextColor="#6B7280"
         value={input}
         onChangeText={setInput}
+        placeholder={"One line of text per string to translate..."}
+        placeholderTextColor={colors.ink5}
         multiline
+        accessibilityLabel="Text to translate"
+        style={{
+          minHeight: 140,
+          borderRadius: radius.md,
+          backgroundColor: colors.surface,
+          borderWidth: 1,
+          borderColor: colors.border,
+          padding: space.md,
+          color: colors.ink,
+          fontSize: 15,
+          textAlignVertical: "top",
+        }}
       />
 
-      <TouchableOpacity
-        style={[styles.translateButton, (!input.trim() || loading) && styles.buttonDisabled]}
-        onPress={translate}
-        disabled={!input.trim() || loading}
-      >
-        {loading ? <ActivityIndicator color="#FFF" /> : <Text style={styles.translateText}>Translate</Text>}
-      </TouchableOpacity>
+      <Button label="Translate" onPress={() => void translate()} disabled={!input.trim()} loading={loading} />
 
-      {result && (
-        <View style={styles.resultCard}>
-          {degraded && (
-            <View style={styles.degradedBanner}>
-              <Text style={styles.degradedText}>⚠ Degraded — AI unavailable, source text returned</Text>
-            </View>
-          )}
-          {result.map((line, i) => (
-            <View key={i} style={styles.line}>
-              <Text style={styles.lineNumber}>{i + 1}</Text>
-              <Text style={styles.lineText}>{line}</Text>
-            </View>
-          ))}
-        </View>
-      )}
+      {result ? (
+        <Card>
+          <View style={{ gap: space.sm }}>
+            {degraded ? (
+              <Badge label="Source text returned — translation unavailable" tone="warning" glyph="!" />
+            ) : null}
+            {result.map((line, i) => (
+              <View key={i} style={{ flexDirection: "row", gap: space.sm }}>
+                <GBText variant="small" tone="subtle" style={{ width: 22 }}>
+                  {i + 1}
+                </GBText>
+                <GBText variant="small" style={{ flex: 1 }}>
+                  {line}
+                </GBText>
+              </View>
+            ))}
+          </View>
+        </Card>
+      ) : null}
     </ScrollView>
   );
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#0A1628" },
-  content: { padding: 20, paddingTop: 60, paddingBottom: 40 },
-  header: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 16 },
-  headerTitle: { fontSize: 24, fontWeight: "700", color: "#FFFFFF" },
-  label: { color: "#9CA3AF", fontSize: 13, fontWeight: "600", marginBottom: 8 },
-  langRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 16 },
-  langChip: {
-    paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8,
-    backgroundColor: "#1E293B", borderWidth: 1, borderColor: "#374151",
-  },
-  langChipActive: { backgroundColor: "#7C2D12", borderColor: "#F97316" },
-  langText: { color: "#94A3B8", fontSize: 13 },
-  langTextActive: { color: "#FDBA74" },
-  textInput: {
-    backgroundColor: "#1E293B", borderRadius: 12, padding: 14,
-    color: "#FFFFFF", fontSize: 15, minHeight: 120, textAlignVertical: "top",
-    borderWidth: 1, borderColor: "#374151", marginBottom: 12,
-  },
-  translateButton: {
-    backgroundColor: "#F97316", borderRadius: 12, paddingVertical: 14, alignItems: "center",
-  },
-  buttonDisabled: { opacity: 0.4 },
-  translateText: { color: "#000", fontSize: 16, fontWeight: "600" },
-  resultCard: { backgroundColor: "#1E293B", borderRadius: 12, padding: 16, marginTop: 20 },
-  degradedBanner: { backgroundColor: "#78350F", borderRadius: 8, padding: 10, marginBottom: 12 },
-  degradedText: { color: "#FCD34D", fontSize: 13, textAlign: "center" },
-  line: { flexDirection: "row", gap: 10, marginBottom: 8 },
-  lineNumber: { color: "#6B7280", fontSize: 13, width: 24 },
-  lineText: { color: "#E2E8F0", fontSize: 14, flex: 1 },
-});

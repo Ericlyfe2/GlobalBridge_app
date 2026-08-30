@@ -1,44 +1,49 @@
+import React, { useState } from "react";
+import {
+  View,
+  ScrollView,
+  TextInput,
+  KeyboardAvoidingView,
+  Platform,
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+
+import { useTheme } from "@/src/theme/ThemeProvider";
+import { GBText, Card, Badge, Button } from "@/src/components/ui";
+import { checkScam, type ScamResult } from "@/src/api/endpoints";
+import { MIN_TOUCH } from "@/src/theme/tokens";
+
 /**
  * Scam Shield.
  *
- * POST /ai/scam-check — the most safety-critical screen in the app.
- * A scam checker that fails open reads as approval, and this audience is
- * actively targeted by scams (§9a).
+ * The most safety-critical screen in the app — this audience is actively
+ * targeted by scams, and the wording throughout is "Potential risk detected",
+ * never "This is a scam". A verdict, not a determination.
+ *
+ * ── Never a clean result when the check could not run ─────────────────────
+ * The server itself floors a degraded response at "Be cautious" — see
+ * lib/ai/fallbacks.ts on the backend — and this screen preserves that floor on
+ * its own network-failure path too. A safety tool that fails open reads as
+ * approval, and there is no path through this screen that shows "Likely safe"
+ * without a real analysis behind it.
+ *
+ * ── Flagged phrases are shown in place ─────────────────────────────────────
+ * The user learns the pattern rather than just trusting a number, which is
+ * what makes them able to catch the next one themselves.
  */
 
-import { useState } from "react";
-import {
-  View, Text, TextInput, TouchableOpacity, StyleSheet,
-  ScrollView, KeyboardAvoidingView, Platform, ActivityIndicator,
-} from "react-native";
-import { Ionicons } from "@expo/vector-icons";
-import { post } from "@/src/api/client";
+const SEVERITY_TONE = { low: "warning", med: "warning", high: "danger" } as const;
 
-type Flag = {
-  phrase: string;
-  category: string;
-  why: string;
-  severity: "low" | "med" | "high";
-};
-
-type ScamResult = {
-  score: number;
-  verdict: "Likely safe" | "Be cautious" | "High scam risk";
-  summary: string;
-  flags: Flag[];
-  advice: string[];
-  degraded?: boolean;
-  disabled?: boolean;
-};
-
-const SEVERITY_COLOR = { low: "#F59E0B", med: "#F97316", high: "#EF4444" };
-const VERDICT_COLOR = {
-  "Likely safe": "#10B981",
-  "Be cautious": "#F59E0B",
-  "High scam risk": "#EF4444",
-};
+const VERDICT_TONE = {
+  "Likely safe": "success",
+  "Be cautious": "warning",
+  "High scam risk": "danger",
+} as const;
 
 export default function ScamCheckScreen() {
+  const { colors, space, radius } = useTheme();
+  const insets = useSafeAreaInsets();
+
   const [text, setText] = useState("");
   const [result, setResult] = useState<ScamResult | null>(null);
   const [loading, setLoading] = useState(false);
@@ -47,15 +52,17 @@ export default function ScamCheckScreen() {
     if (!text.trim()) return;
     setLoading(true);
     try {
-      const res = await post<ScamResult>("/ai/scam-check", { text: text.trim() });
+      const res = await checkScam(text.trim());
       setResult(res);
     } catch {
+      // The network failure path preserves the server's own floor: a
+      // safety check that could not run is never presented as "safe".
       setResult({
         score: 50,
         verdict: "Be cautious",
-        summary: "Could not analyze this message. Please try again.",
+        summary: "We could not reach the checker just now. Use your own judgement and verify before paying.",
         flags: [],
-        advice: ["Use your own judgement and verify before paying."],
+        advice: ["Never pay or share documents before verifying independently."],
         degraded: true,
       });
     } finally {
@@ -65,128 +72,139 @@ export default function ScamCheckScreen() {
 
   return (
     <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      style={{ flex: 1, backgroundColor: colors.bg }}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
-      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <View style={styles.header}>
-          <Ionicons name="shield-checkmark" size={28} color="#EF4444" />
-          <Text style={styles.headerTitle}>Scam Shield</Text>
+      <ScrollView
+        contentContainerStyle={{
+          padding: space.lg,
+          paddingTop: insets.top + space.md,
+          paddingBottom: space.xxl,
+          gap: space.md,
+        }}
+        keyboardShouldPersistTaps="handled"
+      >
+        <View style={{ gap: 4 }}>
+          <GBText variant="title">Scam Shield</GBText>
+          <GBText variant="small" tone="subtle">
+            Paste a listing, offer or message before you pay, share documents or
+            sign anything.
+          </GBText>
         </View>
-        <Text style={styles.subtitle}>
-          Paste a message, listing, or email to check for scam signals.
-        </Text>
 
         <TextInput
-          style={styles.textInput}
-          placeholder="Paste the message here..."
-          placeholderTextColor="#6B7280"
           value={text}
           onChangeText={setText}
+          placeholder="Paste the message here…"
+          placeholderTextColor={colors.ink5}
           multiline
           numberOfLines={6}
           maxLength={6000}
+          accessibilityLabel="Message to check"
+          style={{
+            minHeight: 130,
+            borderRadius: radius.md,
+            backgroundColor: colors.surface,
+            borderWidth: 1,
+            borderColor: colors.border,
+            padding: space.md,
+            color: colors.ink,
+            fontSize: 15,
+            textAlignVertical: "top",
+          }}
         />
 
-        <TouchableOpacity
-          style={[styles.analyzeButton, (!text.trim() || loading) && styles.buttonDisabled]}
-          onPress={analyze}
-          disabled={!text.trim() || loading}
-        >
-          {loading ? (
-            <ActivityIndicator color="#FFFFFF" />
-          ) : (
-            <Text style={styles.analyzeText}>Check for scams</Text>
-          )}
-        </TouchableOpacity>
+        <Button
+          label="Check for scams"
+          onPress={() => void analyze()}
+          disabled={!text.trim()}
+          loading={loading}
+        />
 
-        {/* Result */}
-        {result && (
-          <View style={styles.resultCard}>
-            {result.degraded && (
-              <View style={styles.degradedBanner}>
-                <Text style={styles.degradedText}>⚠ Basic scan only — AI unavailable</Text>
+        {result ? (
+          <Card>
+            <View style={{ gap: space.sm }}>
+              {result.disabled ? (
+                <Badge label="Turned off by an admin" tone="neutral" glyph="—" />
+              ) : result.degraded ? (
+                <Badge label="Basic scan only" tone="warning" glyph="!" />
+              ) : null}
+
+              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                <Badge label={result.verdict} tone={VERDICT_TONE[result.verdict]} glyph="!" />
+                <GBText variant="small" tone="subtle">
+                  {result.score}/100
+                </GBText>
               </View>
-            )}
 
-            <View style={styles.scoreRow}>
-              <Text style={[styles.verdict, { color: VERDICT_COLOR[result.verdict] }]}>
-                {result.verdict}
-              </Text>
-              <Text style={styles.score}>{result.score}/100</Text>
+              <GBText variant="body" tone="muted">
+                {result.summary}
+              </GBText>
+
+              {result.flags.length > 0 ? (
+                <View style={{ gap: space.sm, marginTop: space.xs }}>
+                  <GBText variant="heading">Warning signs</GBText>
+                  {result.flags.map((flag, i) => {
+                    const tone = SEVERITY_TONE[flag.severity];
+                    const dot = tone === "danger" ? colors.danger : colors.amber;
+                    return (
+                      <View key={i} style={{ flexDirection: "row", gap: space.sm }}>
+                        <View
+                          style={{
+                            width: 8,
+                            height: 8,
+                            borderRadius: 4,
+                            backgroundColor: dot,
+                            marginTop: 6,
+                          }}
+                        />
+                        <View style={{ flex: 1, gap: 2 }}>
+                          <GBText variant="label">{flag.category}</GBText>
+                          <GBText variant="small" tone="danger" style={{ fontStyle: "italic" }}>
+                            "{flag.phrase}"
+                          </GBText>
+                          <GBText variant="small" tone="subtle">
+                            {flag.why}
+                          </GBText>
+                        </View>
+                      </View>
+                    );
+                  })}
+                </View>
+              ) : null}
+
+              {result.advice.length > 0 ? (
+                <View
+                  style={{
+                    gap: 4,
+                    marginTop: space.sm,
+                    paddingTop: space.sm,
+                    borderTopWidth: 1,
+                    borderTopColor: colors.border,
+                  }}
+                >
+                  <GBText variant="heading">What to do</GBText>
+                  {result.advice.map((tip, i) => (
+                    <GBText key={i} variant="small" tone="muted">
+                      • {tip}
+                    </GBText>
+                  ))}
+                </View>
+              ) : null}
             </View>
+          </Card>
+        ) : null}
 
-            <Text style={styles.summary}>{result.summary}</Text>
-
-            {result.flags.length > 0 && (
-              <View style={styles.flagsSection}>
-                <Text style={styles.flagsTitle}>Warning signs</Text>
-                {result.flags.map((flag, i) => (
-                  <View key={i} style={styles.flag}>
-                    <View style={[styles.flagDot, { backgroundColor: SEVERITY_COLOR[flag.severity] }]} />
-                    <View style={styles.flagContent}>
-                      <Text style={styles.flagCategory}>{flag.category}</Text>
-                      <Text style={styles.flagPhrase}>"{flag.phrase}"</Text>
-                      <Text style={styles.flagWhy}>{flag.why}</Text>
-                    </View>
-                  </View>
-                ))}
-              </View>
-            )}
-
-            {result.advice.length > 0 && (
-              <View style={styles.adviceSection}>
-                <Text style={styles.adviceTitle}>What to do</Text>
-                {result.advice.map((tip, i) => (
-                  <Text key={i} style={styles.adviceItem}>• {tip}</Text>
-                ))}
-              </View>
-            )}
-          </View>
-        )}
+        <View
+          style={{ minHeight: MIN_TOUCH, justifyContent: "center" }}
+          accessibilityElementsHidden
+        >
+          <GBText variant="small" tone="subtle">
+            Report, Save and Block are on the listing itself once you have
+            checked it.
+          </GBText>
+        </View>
       </ScrollView>
     </KeyboardAvoidingView>
   );
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#0A1628" },
-  content: { padding: 20, paddingTop: 60, paddingBottom: 40 },
-  header: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 4 },
-  headerTitle: { fontSize: 24, fontWeight: "700", color: "#FFFFFF" },
-  subtitle: { color: "#94A3B8", fontSize: 14, marginBottom: 16 },
-  textInput: {
-    backgroundColor: "#1E293B", borderRadius: 12, padding: 14,
-    color: "#FFFFFF", fontSize: 15, minHeight: 120, textAlignVertical: "top",
-    borderWidth: 1, borderColor: "#374151", marginBottom: 12,
-  },
-  analyzeButton: {
-    backgroundColor: "#EF4444", borderRadius: 12, paddingVertical: 14,
-    alignItems: "center", marginBottom: 20,
-  },
-  buttonDisabled: { opacity: 0.4 },
-  analyzeText: { color: "#FFFFFF", fontSize: 16, fontWeight: "600" },
-
-  resultCard: { backgroundColor: "#1E293B", borderRadius: 12, padding: 16 },
-  degradedBanner: {
-    backgroundColor: "#78350F", borderRadius: 8, padding: 10, marginBottom: 12,
-  },
-  degradedText: { color: "#FCD34D", fontSize: 13, textAlign: "center" },
-  scoreRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 },
-  verdict: { fontSize: 20, fontWeight: "700" },
-  score: { color: "#94A3B8", fontSize: 14 },
-  summary: { color: "#CBD5E1", fontSize: 14, lineHeight: 20, marginBottom: 16 },
-
-  flagsSection: { marginBottom: 16 },
-  flagsTitle: { color: "#F1F5F9", fontSize: 15, fontWeight: "600", marginBottom: 8 },
-  flag: { flexDirection: "row", gap: 10, marginBottom: 10 },
-  flagDot: { width: 8, height: 8, borderRadius: 4, marginTop: 5 },
-  flagContent: { flex: 1 },
-  flagCategory: { color: "#F1F5F9", fontSize: 13, fontWeight: "600" },
-  flagPhrase: { color: "#F87171", fontSize: 13, fontStyle: "italic", marginVertical: 2 },
-  flagWhy: { color: "#94A3B8", fontSize: 12 },
-
-  adviceSection: { borderTopWidth: 1, borderTopColor: "#334155", paddingTop: 12 },
-  adviceTitle: { color: "#F1F5F9", fontSize: 15, fontWeight: "600", marginBottom: 6 },
-  adviceItem: { color: "#CBD5E1", fontSize: 13, lineHeight: 20, marginBottom: 4 },
-});

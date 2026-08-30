@@ -32,6 +32,13 @@ import { useConnectivity } from "@/src/hooks/useConnectivity";
 
 type Tool = {
   key: string;
+  /**
+   * The key in GET /ai/status's `features` object this card gates on. Two
+   * cards can point at the same backend feature with different routes -- the
+   * quick text-only document check and the camera flow are one server
+   * capability, presented as two entry points.
+   */
+  statusKey: string;
   glyph: string;
   name: string;
   note: string;
@@ -44,6 +51,7 @@ type Tool = {
 const TOOLS: Tool[] = [
   {
     key: "chat",
+    statusKey: "chat",
     glyph: "AI",
     name: "Visa Assistant",
     note: "Ask anything; answers cite their sources",
@@ -53,6 +61,7 @@ const TOOLS: Tool[] = [
   },
   {
     key: "doc-check",
+    statusKey: "doc-check",
     glyph: "DOC",
     name: "Document Checker",
     note: "Photograph a document, check expiry and gaps",
@@ -61,7 +70,18 @@ const TOOLS: Tool[] = [
     worksDegraded: true,
   },
   {
+    key: "doc-check-quick",
+    statusKey: "doc-check",
+    glyph: "DOC",
+    name: "Quick document check",
+    note: "No photo -- pick a type and add what you know",
+    route: "/ai/doc-check",
+    tone: "info",
+    worksDegraded: true,
+  },
+  {
     key: "scam-check",
+    statusKey: "scam-check",
     glyph: "SS",
     name: "Scam Shield",
     note: "Paste a listing, offer or message before you pay",
@@ -71,6 +91,7 @@ const TOOLS: Tool[] = [
   },
   {
     key: "visa-roadmap",
+    statusKey: "visa-roadmap",
     glyph: "RM",
     name: "Visa Roadmap",
     note: "Your stages and tasks, kept up to date",
@@ -80,6 +101,7 @@ const TOOLS: Tool[] = [
   },
   {
     key: "readiness",
+    statusKey: "readiness",
     glyph: "RS",
     name: "Readiness Score",
     note: "What is done, what is missing, what is next",
@@ -89,6 +111,7 @@ const TOOLS: Tool[] = [
   },
   {
     key: "compare-countries",
+    statusKey: "compare-countries",
     glyph: "CC",
     name: "Country Compare",
     note: "Two destinations side by side, sourced",
@@ -98,11 +121,22 @@ const TOOLS: Tool[] = [
   },
   {
     key: "score-essay",
+    statusKey: "score-essay",
     glyph: "SoP",
     name: "Essay / SoP review",
     note: "Structured feedback, never a rewrite",
     route: "/ai/score-essay",
     tone: "info",
+    worksDegraded: false,
+  },
+  {
+    key: "translate",
+    statusKey: "translate",
+    glyph: "TR",
+    name: "Translate",
+    note: "Batch-translate text into your language",
+    route: "/ai/translate",
+    tone: "warning",
     worksDegraded: false,
   },
 ];
@@ -173,7 +207,7 @@ export default function ToolsScreen() {
         TOOLS.map((tool) => {
           // Absent a status response, assume nothing works rather than letting
           // the user walk into a dead screen.
-          const serverEnabled = status ? (status.features[tool.key] ?? false) : false;
+          const serverEnabled = status ? (status.features[tool.statusKey] ?? false) : false;
           const blockedByNetwork = !online && !tool.worksDegraded;
           const available = serverEnabled && !blockedByNetwork;
 

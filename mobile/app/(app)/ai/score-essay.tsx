@@ -1,17 +1,22 @@
-/**
- * Essay Review.
- *
- * POST /ai/score-essay — scores essays against a rubric.
- * Returns 503 rather than a fabricated review (§9a).
- */
+import React, { useState } from "react";
+import { View, ScrollView, TextInput, Pressable, KeyboardAvoidingView, Platform } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { useState } from "react";
-import {
-  View, Text, TextInput, TouchableOpacity, StyleSheet,
-  ScrollView, ActivityIndicator,
-} from "react-native";
-import { Ionicons } from "@expo/vector-icons";
-import { post } from "@/src/api/client";
+import { useTheme } from "@/src/theme/ThemeProvider";
+import { GBText, Card, Button, Badge } from "@/src/components/ui";
+import { scoreEssay, type EssayResult } from "@/src/api/endpoints";
+import { ApiError } from "@/src/api/client";
+import { MIN_TOUCH } from "@/src/theme/tokens";
+
+/**
+ * Essay / SoP review.
+ *
+ * The one AI feature with no canned fallback (backend: routes/ai/score-essay.ts).
+ * A fabricated review would quote passages the user did not write and score
+ * work the model never read, for a document about to go to a university, so
+ * the server answers 503 rather than degrade, and this screen's only job on
+ * that path is to say plainly that the draft itself was not touched.
+ */
 
 const DOC_TYPES = [
   { value: "sop", label: "Statement of Purpose" },
@@ -21,21 +26,18 @@ const DOC_TYPES = [
   { value: "cover_letter", label: "Cover Letter" },
 ] as const;
 
-type EssayResult = {
-  overall: number;
-  sections?: Array<{
-    id: string;
-    label: string;
-    score: number;
-    tone: string;
-    comment: string;
-  }>;
-  tips?: string[];
-};
+function scoreTone(score: number): "success" | "warning" | "danger" {
+  if (score >= 70) return "success";
+  if (score >= 50) return "warning";
+  return "danger";
+}
 
 export default function ScoreEssayScreen() {
+  const { colors, space, radius } = useTheme();
+  const insets = useSafeAreaInsets();
+
   const [essay, setEssay] = useState("");
-  const [docType, setDocType] = useState("sop");
+  const [docType, setDocType] = useState<(typeof DOC_TYPES)[number]["value"]>("sop");
   const [target, setTarget] = useState("");
   const [result, setResult] = useState<EssayResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -45,155 +47,185 @@ export default function ScoreEssayScreen() {
     if (!essay.trim()) return;
     setLoading(true);
     setError(null);
+    setResult(null);
     try {
-      const res = await post<EssayResult>("/ai/score-essay", {
-        essay: essay.trim(),
-        docType,
-        target: target.trim() || undefined,
-      });
+      const res = await scoreEssay({ essay: essay.trim(), docType, target: target.trim() || undefined });
       setResult(res);
-    } catch (err: any) {
-      if (err?.response?.status === 503) {
-        setError("Essay review is temporarily unavailable. Your draft is safe.");
-      } else {
-        setError("Something went wrong. Please try again.");
-      }
+    } catch (err) {
+      const apiErr = err instanceof ApiError ? err : null;
+      setError(
+        apiErr?.status === 503
+          ? "Essay review is temporarily unavailable. Your draft has not been changed."
+          : "Something went wrong. Please try again.",
+      );
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <View style={styles.header}>
-        <Ionicons name="pencil" size={28} color="#EC4899" />
-        <Text style={styles.headerTitle}>Essay Review</Text>
-      </View>
-
-      <Text style={styles.label}>Document type</Text>
-      <View style={styles.typeRow}>
-        {DOC_TYPES.map((dt) => (
-          <TouchableOpacity
-            key={dt.value}
-            style={[styles.typeChip, docType === dt.value && styles.typeChipActive]}
-            onPress={() => setDocType(dt.value)}
-          >
-            <Text style={[styles.typeText, docType === dt.value && styles.typeTextActive]}>
-              {dt.label}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-
-      <TextInput
-        style={styles.input}
-        placeholder="Target institution or company (optional)"
-        placeholderTextColor="#6B7280"
-        value={target}
-        onChangeText={setTarget}
-      />
-
-      <TextInput
-        style={styles.essayInput}
-        placeholder="Paste your essay draft here..."
-        placeholderTextColor="#6B7280"
-        value={essay}
-        onChangeText={setEssay}
-        multiline
-        maxLength={20000}
-      />
-
-      <TouchableOpacity
-        style={[styles.analyzeButton, (!essay.trim() || loading) && styles.buttonDisabled]}
-        onPress={analyze}
-        disabled={!essay.trim() || loading}
+    <KeyboardAvoidingView
+      style={{ flex: 1, backgroundColor: colors.bg }}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+    >
+      <ScrollView
+        contentContainerStyle={{
+          padding: space.lg,
+          paddingTop: insets.top + space.md,
+          paddingBottom: space.xxl,
+          gap: space.md,
+        }}
+        keyboardShouldPersistTaps="handled"
       >
-        {loading ? <ActivityIndicator color="#FFF" /> : <Text style={styles.analyzeText}>Review essay</Text>}
-      </TouchableOpacity>
+        <GBText variant="title">Essay / SoP review</GBText>
 
-      {error && (
-        <View style={styles.errorCard}>
-          <Ionicons name="warning" size={20} color="#F59E0B" />
-          <Text style={styles.errorText}>{error}</Text>
-        </View>
-      )}
-
-      {result && (
-        <View style={styles.resultCard}>
-          <View style={styles.scoreRow}>
-            <Text style={styles.scoreLabel}>Overall</Text>
-            <Text style={[styles.scoreValue, { color: result.overall >= 70 ? "#10B981" : result.overall >= 50 ? "#F59E0B" : "#EF4444" }]}>
-              {result.overall}/100
-            </Text>
+        <View style={{ gap: space.sm }}>
+          <GBText variant="label">Document type</GBText>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm }}>
+            {DOC_TYPES.map((dt) => {
+              const active = dt.value === docType;
+              return (
+                <Pressable
+                  key={dt.value}
+                  onPress={() => setDocType(dt.value)}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: active }}
+                  style={{
+                    minHeight: MIN_TOUCH,
+                    justifyContent: "center",
+                    paddingHorizontal: space.md,
+                    borderRadius: radius.pill,
+                    backgroundColor: active ? colors.claysoft : colors.surface,
+                    borderWidth: 1,
+                    borderColor: active ? colors.clay : colors.border,
+                  }}
+                >
+                  <GBText variant="small" style={{ color: active ? colors.clay6 : colors.ink6 }}>
+                    {dt.label}
+                  </GBText>
+                </Pressable>
+              );
+            })}
           </View>
-
-          {result.sections?.map((s) => (
-            <View key={s.id} style={styles.section}>
-              <View style={styles.sectionHeader}>
-                <Text style={styles.sectionLabel}>{s.label}</Text>
-                <Text style={styles.sectionScore}>{s.score}/100</Text>
-              </View>
-              <Text style={styles.sectionComment}>{s.comment}</Text>
-            </View>
-          ))}
-
-          {result.tips && result.tips.length > 0 && (
-            <View style={styles.tipsSection}>
-              <Text style={styles.tipsTitle}>Top improvements</Text>
-              {result.tips.map((tip, i) => (
-                <Text key={i} style={styles.tipItem}>{i + 1}. {tip}</Text>
-              ))}
-            </View>
-          )}
         </View>
-      )}
-    </ScrollView>
+
+        <TextInput
+          value={target}
+          onChangeText={setTarget}
+          placeholder="Target school or programme (optional)"
+          placeholderTextColor={colors.ink5}
+          accessibilityLabel="Target institution"
+          style={{
+            minHeight: MIN_TOUCH,
+            borderRadius: radius.md,
+            backgroundColor: colors.surface,
+            borderWidth: 1,
+            borderColor: colors.border,
+            paddingHorizontal: space.md,
+            color: colors.ink,
+            fontSize: 15,
+          }}
+        />
+
+        <TextInput
+          value={essay}
+          onChangeText={setEssay}
+          placeholder="Paste your draft here..."
+          placeholderTextColor={colors.ink5}
+          multiline
+          maxLength={20000}
+          accessibilityLabel="Essay draft"
+          style={{
+            minHeight: 180,
+            borderRadius: radius.md,
+            backgroundColor: colors.surface,
+            borderWidth: 1,
+            borderColor: colors.border,
+            padding: space.md,
+            color: colors.ink,
+            fontSize: 15,
+            textAlignVertical: "top",
+          }}
+        />
+
+        <Button label="Review essay" onPress={() => void analyze()} disabled={!essay.trim()} loading={loading} />
+
+        {error ? (
+          <Card accent={colors.amber}>
+            <GBText variant="small" tone="muted">
+              {error}
+            </GBText>
+          </Card>
+        ) : null}
+
+        {result ? (
+          <Card>
+            <View style={{ gap: space.sm }}>
+              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                <GBText variant="heading">Overall</GBText>
+                <Badge label={`${result.overall}/100`} tone={scoreTone(result.overall)} />
+              </View>
+
+              {result.sections.map((s) => (
+                <View
+                  key={s.id}
+                  style={{
+                    paddingTop: space.sm,
+                    borderTopWidth: 1,
+                    borderTopColor: colors.border,
+                    gap: 2,
+                  }}
+                >
+                  <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+                    <GBText variant="label">{s.label}</GBText>
+                    <GBText variant="small" tone="subtle">
+                      {s.score}/100
+                    </GBText>
+                  </View>
+                  <GBText variant="small" tone="subtle">
+                    {s.comment}
+                  </GBText>
+                </View>
+              ))}
+
+              {result.inlines.length > 0 ? (
+                <View
+                  style={{
+                    gap: space.sm,
+                    marginTop: space.xs,
+                    paddingTop: space.sm,
+                    borderTopWidth: 1,
+                    borderTopColor: colors.border,
+                  }}
+                >
+                  <GBText variant="heading">In your draft</GBText>
+                  {result.inlines.map((inline, i) => (
+                    <View key={i} style={{ gap: 2 }}>
+                      <GBText variant="small" tone="danger" style={{ fontStyle: "italic" }}>
+                        "{inline.quote}"
+                      </GBText>
+                      <GBText variant="small" tone="subtle">
+                        {inline.comment}
+                      </GBText>
+                    </View>
+                  ))}
+                </View>
+              ) : null}
+
+              {result.tips.length > 0 ? (
+                <View style={{ marginTop: space.xs, gap: 4 }}>
+                  <GBText variant="heading">Top improvements</GBText>
+                  {result.tips.map((tip, i) => (
+                    <GBText key={i} variant="small" tone="muted">
+                      {i + 1}. {tip}
+                    </GBText>
+                  ))}
+                </View>
+              ) : null}
+            </View>
+          </Card>
+        ) : null}
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#0A1628" },
-  content: { padding: 20, paddingTop: 60, paddingBottom: 40 },
-  header: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 16 },
-  headerTitle: { fontSize: 24, fontWeight: "700", color: "#FFFFFF" },
-  label: { color: "#9CA3AF", fontSize: 13, fontWeight: "600", marginBottom: 8 },
-  typeRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 12 },
-  typeChip: {
-    paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8,
-    backgroundColor: "#1E293B", borderWidth: 1, borderColor: "#374151",
-  },
-  typeChipActive: { backgroundColor: "#831843", borderColor: "#EC4899" },
-  typeText: { color: "#94A3B8", fontSize: 12 },
-  typeTextActive: { color: "#F9A8D4" },
-  input: {
-    backgroundColor: "#1E293B", borderRadius: 12, paddingHorizontal: 16, paddingVertical: 12,
-    color: "#FFFFFF", fontSize: 14, borderWidth: 1, borderColor: "#374151", marginBottom: 12,
-  },
-  essayInput: {
-    backgroundColor: "#1E293B", borderRadius: 12, padding: 14,
-    color: "#FFFFFF", fontSize: 14, minHeight: 160, textAlignVertical: "top",
-    borderWidth: 1, borderColor: "#374151", marginBottom: 12,
-  },
-  analyzeButton: {
-    backgroundColor: "#EC4899", borderRadius: 12, paddingVertical: 14, alignItems: "center",
-  },
-  buttonDisabled: { opacity: 0.4 },
-  analyzeText: { color: "#FFFFFF", fontSize: 16, fontWeight: "600" },
-  errorCard: {
-    flexDirection: "row", gap: 10, backgroundColor: "#78350F",
-    borderRadius: 12, padding: 14, marginTop: 20, alignItems: "center",
-  },
-  errorText: { color: "#FCD34D", fontSize: 14, flex: 1 },
-  resultCard: { backgroundColor: "#1E293B", borderRadius: 12, padding: 16, marginTop: 20 },
-  scoreRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 16 },
-  scoreLabel: { color: "#F1F5F9", fontSize: 18, fontWeight: "700" },
-  scoreValue: { fontSize: 28, fontWeight: "700" },
-  section: { marginBottom: 12, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: "#334155" },
-  sectionHeader: { flexDirection: "row", justifyContent: "space-between" },
-  sectionLabel: { color: "#E2E8F0", fontSize: 14, fontWeight: "500" },
-  sectionScore: { color: "#94A3B8", fontSize: 13 },
-  sectionComment: { color: "#94A3B8", fontSize: 12, marginTop: 4 },
-  tipsSection: { marginTop: 8 },
-  tipsTitle: { color: "#F1F5F9", fontSize: 15, fontWeight: "600", marginBottom: 8 },
-  tipItem: { color: "#CBD5E1", fontSize: 13, lineHeight: 20, marginBottom: 4 },
-});

@@ -1,39 +1,35 @@
+import React, { useState } from "react";
+import { View, ScrollView, TextInput, Pressable } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+
+import { useTheme } from "@/src/theme/ThemeProvider";
+import { GBText, Card, Badge, Button } from "@/src/components/ui";
+import { generateRoadmap, type RoadmapResult } from "@/src/api/endpoints";
+import { MIN_TOUCH } from "@/src/theme/tokens";
+
 /**
  * Visa Roadmap.
  *
- * POST /ai/visa-roadmap — generates a step-by-step plan.
- * The fallback roadmap is generic and flagged `degraded` (§9a).
+ * The fallback roadmap the server returns when the model is unreachable is
+ * generic and marked `degraded`; the costs and timeframes in *any* roadmap —
+ * real or fallback — are estimates, marked `estimates_only`, and never
+ * presented as an official fee. Both banners are shown when the server sets
+ * them, never inferred locally.
  */
 
-import { useState } from "react";
-import {
-  View, Text, TextInput, TouchableOpacity, StyleSheet,
-  ScrollView, ActivityIndicator,
-} from "react-native";
-import { Ionicons } from "@expo/vector-icons";
-import { post } from "@/src/api/client";
-
-type Phase = {
-  id: string;
-  title: string;
-  timeframe: string;
-  cost: string;
-  documents: string[];
-  tip: string;
-};
-
-type RoadmapResult = {
-  title: string;
-  totalWeeks: number;
-  phases: Phase[];
-  estimates_only?: boolean;
-  degraded?: boolean;
-};
+const PURPOSES = [
+  { key: "study", label: "Study" },
+  { key: "work", label: "Work" },
+  { key: "settle", label: "Settle" },
+] as const;
 
 export default function VisaRoadmapScreen() {
+  const { colors, space, radius } = useTheme();
+  const insets = useSafeAreaInsets();
+
   const [origin, setOrigin] = useState("");
   const [destination, setDestination] = useState("");
-  const [purpose, setPurpose] = useState<"study" | "work" | "settle">("study");
+  const [purpose, setPurpose] = useState<(typeof PURPOSES)[number]["key"]>("study");
   const [result, setResult] = useState<RoadmapResult | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -41,7 +37,7 @@ export default function VisaRoadmapScreen() {
     if (!origin.trim() || !destination.trim()) return;
     setLoading(true);
     try {
-      const res = await post<RoadmapResult>("/ai/visa-roadmap", {
+      const res = await generateRoadmap({
         origin: origin.trim(),
         destination: destination.trim(),
         purpose,
@@ -55,127 +51,155 @@ export default function VisaRoadmapScreen() {
   };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <View style={styles.header}>
-        <Ionicons name="map" size={28} color="#10B981" />
-        <Text style={styles.headerTitle}>Visa Roadmap</Text>
-      </View>
+    <ScrollView
+      style={{ flex: 1, backgroundColor: colors.bg }}
+      contentContainerStyle={{
+        padding: space.lg,
+        paddingTop: insets.top + space.md,
+        paddingBottom: space.xxl,
+        gap: space.md,
+      }}
+      keyboardShouldPersistTaps="handled"
+    >
+      <GBText variant="title">Visa Roadmap</GBText>
 
       <TextInput
-        style={styles.input}
-        placeholder="Origin country"
-        placeholderTextColor="#6B7280"
         value={origin}
         onChangeText={setOrigin}
+        placeholder="Where you are now"
+        placeholderTextColor={colors.ink5}
+        autoCapitalize="words"
+        accessibilityLabel="Origin country"
+        style={{
+          minHeight: MIN_TOUCH,
+          borderRadius: radius.md,
+          backgroundColor: colors.surface,
+          borderWidth: 1,
+          borderColor: colors.border,
+          paddingHorizontal: space.md,
+          color: colors.ink,
+          fontSize: 15,
+        }}
       />
       <TextInput
-        style={styles.input}
-        placeholder="Destination country"
-        placeholderTextColor="#6B7280"
         value={destination}
         onChangeText={setDestination}
+        placeholder="Where you are going"
+        placeholderTextColor={colors.ink5}
+        autoCapitalize="words"
+        accessibilityLabel="Destination country"
+        style={{
+          minHeight: MIN_TOUCH,
+          borderRadius: radius.md,
+          backgroundColor: colors.surface,
+          borderWidth: 1,
+          borderColor: colors.border,
+          paddingHorizontal: space.md,
+          color: colors.ink,
+          fontSize: 15,
+        }}
       />
 
-      <View style={styles.purposeRow}>
-        {(["study", "work", "settle"] as const).map((p) => (
-          <TouchableOpacity
-            key={p}
-            style={[styles.purposeChip, purpose === p && styles.purposeChipActive]}
-            onPress={() => setPurpose(p)}
-          >
-            <Text style={[styles.purposeText, purpose === p && styles.purposeTextActive]}>
-              {p.charAt(0).toUpperCase() + p.slice(1)}
-            </Text>
-          </TouchableOpacity>
-        ))}
+      <View style={{ flexDirection: "row", gap: space.sm }}>
+        {PURPOSES.map((p) => {
+          const active = p.key === purpose;
+          return (
+            <Pressable
+              key={p.key}
+              onPress={() => setPurpose(p.key)}
+              accessibilityRole="radio"
+              accessibilityState={{ selected: active }}
+              style={{
+                flex: 1,
+                minHeight: MIN_TOUCH,
+                alignItems: "center",
+                justifyContent: "center",
+                borderRadius: radius.md,
+                backgroundColor: active ? colors.claysoft : colors.surface,
+                borderWidth: 1,
+                borderColor: active ? colors.clay : colors.border,
+              }}
+            >
+              <GBText variant="label" style={{ color: active ? colors.clay6 : colors.ink6 }}>
+                {p.label}
+              </GBText>
+            </Pressable>
+          );
+        })}
       </View>
 
-      <TouchableOpacity
-        style={[styles.generateButton, (!origin.trim() || !destination.trim() || loading) && styles.buttonDisabled]}
-        onPress={generate}
-        disabled={!origin.trim() || !destination.trim() || loading}
-      >
-        {loading ? <ActivityIndicator color="#FFF" /> : <Text style={styles.generateText}>Generate roadmap</Text>}
-      </TouchableOpacity>
+      <Button
+        label="Generate roadmap"
+        onPress={() => void generate()}
+        disabled={!origin.trim() || !destination.trim()}
+        loading={loading}
+      />
 
-      {result && (
-        <View style={styles.resultCard}>
-          {result.degraded && (
-            <View style={styles.degradedBanner}>
-              <Text style={styles.degradedText}>⚠ Generic roadmap — AI unavailable</Text>
-            </View>
-          )}
-          <Text style={styles.title}>{result.title}</Text>
-          <Text style={styles.totalWeeks}>≈ {result.totalWeeks} weeks</Text>
+      {result ? (
+        <Card>
+          <View style={{ gap: space.sm }}>
+            {result.degraded ? (
+              <Badge label="Generic roadmap — AI unavailable" tone="warning" glyph="!" />
+            ) : null}
 
-          {result.phases.map((phase, i) => (
-            <View key={phase.id} style={styles.phase}>
-              <View style={styles.phaseHeader}>
-                <View style={styles.phaseNumber}>
-                  <Text style={styles.phaseNumberText}>{i + 1}</Text>
+            <GBText variant="heading">{result.title}</GBText>
+            <GBText variant="small" tone="subtle">
+              ≈ {result.totalWeeks} weeks
+            </GBText>
+
+            {result.phases.map((phase, i) => (
+              <View
+                key={phase.id}
+                style={{
+                  gap: 4,
+                  paddingTop: space.sm,
+                  borderTopWidth: i === 0 ? 0 : 1,
+                  borderTopColor: colors.border,
+                }}
+              >
+                <View style={{ flexDirection: "row", gap: space.sm, alignItems: "flex-start" }}>
+                  <View
+                    style={{
+                      width: 26,
+                      height: 26,
+                      borderRadius: 13,
+                      backgroundColor: colors.clay,
+                      alignItems: "center",
+                      justifyContent: "center",
+                      marginTop: 1,
+                    }}
+                  >
+                    <GBText variant="tag" tone="inverse">
+                      {i + 1}
+                    </GBText>
+                  </View>
+                  <View style={{ flex: 1, gap: 2 }}>
+                    <GBText variant="label">{phase.title}</GBText>
+                    <GBText variant="small" tone="subtle">
+                      {phase.timeframe} · {phase.cost}
+                    </GBText>
+                  </View>
                 </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.phaseTitle}>{phase.title}</Text>
-                  <Text style={styles.phaseTime}>{phase.timeframe} · {phase.cost}</Text>
-                </View>
+                {phase.documents.length > 0 ? (
+                  <GBText variant="small" tone="subtle" style={{ marginLeft: 34 }}>
+                    Documents: {phase.documents.join(", ")}
+                  </GBText>
+                ) : null}
+                <GBText variant="small" tone="brand" style={{ marginLeft: 34, fontStyle: "italic" }}>
+                  {phase.tip}
+                </GBText>
               </View>
-              {phase.documents.length > 0 && (
-                <Text style={styles.phaseDocs}>
-                  Documents: {phase.documents.join(", ")}
-                </Text>
-              )}
-              <Text style={styles.phaseTip}>💡 {phase.tip}</Text>
-            </View>
-          ))}
+            ))}
 
-          {result.estimates_only && (
-            <Text style={styles.disclaimer}>
-              Costs and timeframes are estimates. Verify on the official government site.
-            </Text>
-          )}
-        </View>
-      )}
+            {result.estimates_only ? (
+              <GBText variant="small" tone="subtle" style={{ textAlign: "center", marginTop: space.xs }}>
+                Costs and timeframes are estimates. Verify on the official
+                government site.
+              </GBText>
+            ) : null}
+          </View>
+        </Card>
+      ) : null}
     </ScrollView>
   );
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#0A1628" },
-  content: { padding: 20, paddingTop: 60, paddingBottom: 40 },
-  header: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 20 },
-  headerTitle: { fontSize: 24, fontWeight: "700", color: "#FFFFFF" },
-  input: {
-    backgroundColor: "#1E293B", borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14,
-    color: "#FFFFFF", fontSize: 15, borderWidth: 1, borderColor: "#374151", marginBottom: 12,
-  },
-  purposeRow: { flexDirection: "row", gap: 10, marginBottom: 16 },
-  purposeChip: {
-    flex: 1, paddingVertical: 10, borderRadius: 8, alignItems: "center",
-    backgroundColor: "#1E293B", borderWidth: 1, borderColor: "#374151",
-  },
-  purposeChipActive: { backgroundColor: "#064E3B", borderColor: "#10B981" },
-  purposeText: { color: "#94A3B8", fontSize: 14, fontWeight: "500" },
-  purposeTextActive: { color: "#6EE7B7" },
-  generateButton: {
-    backgroundColor: "#10B981", borderRadius: 12, paddingVertical: 14, alignItems: "center",
-  },
-  buttonDisabled: { opacity: 0.4 },
-  generateText: { color: "#000", fontSize: 16, fontWeight: "600" },
-  resultCard: { backgroundColor: "#1E293B", borderRadius: 12, padding: 16, marginTop: 20 },
-  degradedBanner: { backgroundColor: "#78350F", borderRadius: 8, padding: 10, marginBottom: 12 },
-  degradedText: { color: "#FCD34D", fontSize: 13, textAlign: "center" },
-  title: { color: "#F1F5F9", fontSize: 18, fontWeight: "700", marginBottom: 2 },
-  totalWeeks: { color: "#94A3B8", fontSize: 13, marginBottom: 16 },
-  phase: { marginBottom: 16, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: "#334155" },
-  phaseHeader: { flexDirection: "row", gap: 12, alignItems: "flex-start" },
-  phaseNumber: {
-    width: 28, height: 28, borderRadius: 14, backgroundColor: "#10B981",
-    justifyContent: "center", alignItems: "center",
-  },
-  phaseNumberText: { color: "#000", fontSize: 13, fontWeight: "700" },
-  phaseTitle: { color: "#E2E8F0", fontSize: 15, fontWeight: "600" },
-  phaseTime: { color: "#94A3B8", fontSize: 12, marginTop: 2 },
-  phaseDocs: { color: "#64748B", fontSize: 12, marginTop: 6, marginLeft: 40 },
-  phaseTip: { color: "#94A3B8", fontSize: 12, marginTop: 4, marginLeft: 40, fontStyle: "italic" },
-  disclaimer: { color: "#64748B", fontSize: 11, fontStyle: "italic", marginTop: 8, textAlign: "center" },
-});

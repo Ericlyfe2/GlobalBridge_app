@@ -1,60 +1,57 @@
+import React, { useState } from "react";
+import { View, ScrollView, TextInput, KeyboardAvoidingView, Platform, Pressable } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useRouter } from "expo-router";
+
+import { useTheme } from "@/src/theme/ThemeProvider";
+import { GBText, Card, Badge, Button } from "@/src/components/ui";
+import { checkDocument, type DocCheckResult } from "@/src/api/endpoints";
+import { radius as radiusTokens, MIN_TOUCH } from "@/src/theme/tokens";
+
 /**
- * Document Checker.
+ * Document Checker — quick check, no photo.
  *
- * POST /ai/doc-check — reasons about what governments commonly reject.
- * Never sees the file; reasons from declared type and metadata (§9a).
+ * The primary flow is the camera capture at /scan, which uploads a real file
+ * and checks it against the same endpoint this screen calls. This is the
+ * secondary path: pick a document type and add what you already know, when you
+ * would rather not photograph anything yet — checking a document you have not
+ * scanned in, or double-checking before you go find the physical copy.
+ *
+ * ── What this tool can and cannot know ─────────────────────────────────────
+ * It never sees a file, here or in the camera flow — it reasons about what
+ * governments commonly reject for a document of this type. Every finding is
+ * phrased as something to verify, never as an observation about a document it
+ * was not given.
  */
-
-import { useState } from "react";
-import {
-  View, Text, TextInput, TouchableOpacity, StyleSheet,
-  ScrollView, KeyboardAvoidingView, Platform, ActivityIndicator,
-} from "react-native";
-import { Ionicons } from "@expo/vector-icons";
-import { post } from "@/src/api/client";
-
-type Finding = {
-  id: string;
-  label: string;
-  detail: string;
-  severity: "ok" | "warn" | "fail";
-};
-
-type DocResult = {
-  score: number;
-  label: string;
-  summary: string;
-  findings: Finding[];
-  degraded?: boolean;
-};
 
 const DOC_TYPES = [
   { value: "passport", label: "Passport" },
   { value: "national_id", label: "National ID" },
-  { value: "bank_statement", label: "Bank Statement" },
+  { value: "bank_statement", label: "Bank statement" },
   { value: "transcript", label: "Transcript" },
-  { value: "acceptance_letter", label: "Acceptance Letter" },
-  { value: "study_permit", label: "Study Permit" },
+  { value: "acceptance_letter", label: "Admission letter" },
+  { value: "study_permit", label: "Study permit" },
   { value: "insurance", label: "Insurance" },
-  { value: "other", label: "Other" },
-] as const;
+  { value: "other", label: "Something else" },
+];
 
-const SEVERITY_ICON = { ok: "checkmark-circle", warn: "alert-circle", fail: "close-circle" } as const;
-const SEVERITY_COLOR = { ok: "#10B981", warn: "#F59E0B", fail: "#EF4444" };
+const SEVERITY_TONE = { ok: "success", warn: "warning", fail: "danger" } as const;
+const SEVERITY_MARK = { ok: "✓", warn: "!", fail: "×" };
 
 export default function DocCheckScreen() {
-  const [docType, setDocType] = useState<string>("passport");
+  const { colors, space } = useTheme();
+  const insets = useSafeAreaInsets();
+  const router = useRouter();
+
+  const [docType, setDocType] = useState("passport");
   const [notes, setNotes] = useState("");
-  const [result, setResult] = useState<DocResult | null>(null);
+  const [result, setResult] = useState<DocCheckResult | null>(null);
   const [loading, setLoading] = useState(false);
 
   const check = async () => {
     setLoading(true);
     try {
-      const res = await post<DocResult>("/ai/doc-check", {
-        docType,
-        notes: notes.trim() || undefined,
-      });
+      const res = await checkDocument({ docType, notes: notes.trim() || undefined });
       setResult(res);
     } catch {
       setResult(null);
@@ -65,110 +62,140 @@ export default function DocCheckScreen() {
 
   return (
     <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      style={{ flex: 1, backgroundColor: colors.bg }}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
-      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <View style={styles.header}>
-          <Ionicons name="document-text" size={28} color="#F59E0B" />
-          <Text style={styles.headerTitle}>Document Checker</Text>
+      <ScrollView
+        contentContainerStyle={{
+          padding: space.lg,
+          paddingTop: insets.top + space.md,
+          paddingBottom: space.xxl,
+          gap: space.md,
+        }}
+        keyboardShouldPersistTaps="handled"
+      >
+        <View style={{ gap: 4 }}>
+          <GBText variant="title">Quick document check</GBText>
+          <GBText variant="small" tone="subtle">
+            No photo needed — pick the type and add what you already know.
+          </GBText>
         </View>
-        <Text style={styles.subtitle}>
-          Select your document type and add notes. We'll check common rejection triggers.
-        </Text>
 
-        {/* Doc type selector */}
-        <Text style={styles.label}>Document type</Text>
-        <View style={styles.typeGrid}>
-          {DOC_TYPES.map((dt) => (
-            <TouchableOpacity
-              key={dt.value}
-              style={[styles.typeChip, docType === dt.value && styles.typeChipActive]}
-              onPress={() => setDocType(dt.value)}
-            >
-              <Text style={[styles.typeChipText, docType === dt.value && styles.typeChipTextActive]}>
-                {dt.label}
-              </Text>
-            </TouchableOpacity>
-          ))}
+        <View style={{ gap: space.sm }}>
+          <GBText variant="label">Document type</GBText>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm }}>
+            {DOC_TYPES.map((t) => {
+              const active = t.value === docType;
+              return (
+                <Pressable
+                  key={t.value}
+                  onPress={() => setDocType(t.value)}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: active }}
+                  style={{
+                    minHeight: MIN_TOUCH,
+                    justifyContent: "center",
+                    paddingHorizontal: space.md,
+                    borderRadius: radiusTokens.pill,
+                    backgroundColor: active ? colors.claysoft : colors.surface,
+                    borderWidth: 1,
+                    borderColor: active ? colors.clay : colors.border,
+                  }}
+                >
+                  <GBText variant="small" style={{ color: active ? colors.clay6 : colors.ink6 }}>
+                    {t.label}
+                  </GBText>
+                </Pressable>
+              );
+            })}
+          </View>
         </View>
 
         <TextInput
-          style={styles.textInput}
-          placeholder="Optional notes (name on document, expiry date, etc.)"
-          placeholderTextColor="#6B7280"
           value={notes}
           onChangeText={setNotes}
+          placeholder="Optional — name on the document, expiry date, anything you have handy"
+          placeholderTextColor={colors.ink5}
           multiline
           numberOfLines={3}
           maxLength={30000}
+          accessibilityLabel="Notes"
+          style={{
+            minHeight: 90,
+            borderRadius: radiusTokens.md,
+            backgroundColor: colors.surface,
+            borderWidth: 1,
+            borderColor: colors.border,
+            padding: space.md,
+            color: colors.ink,
+            fontSize: 15,
+            textAlignVertical: "top",
+          }}
         />
 
-        <TouchableOpacity
-          style={[styles.checkButton, loading && styles.buttonDisabled]}
-          onPress={check}
-          disabled={loading}
-        >
-          {loading ? <ActivityIndicator color="#FFF" /> : <Text style={styles.checkText}>Check document</Text>}
-        </TouchableOpacity>
+        <Button label="Check document" onPress={() => void check()} loading={loading} />
 
-        {result && (
-          <View style={styles.resultCard}>
-            {result.degraded && (
-              <View style={styles.degradedBanner}>
-                <Text style={styles.degradedText}>⚠ Basic checklist — AI unavailable</Text>
-              </View>
-            )}
-            <Text style={styles.resultLabel}>{result.label}</Text>
-            <Text style={styles.resultSummary}>{result.summary}</Text>
-            {result.findings.map((f) => (
-              <View key={f.id} style={styles.finding}>
-                <Ionicons name={SEVERITY_ICON[f.severity]} size={18} color={SEVERITY_COLOR[f.severity]} />
-                <View style={styles.findingContent}>
-                  <Text style={styles.findingLabel}>{f.label}</Text>
-                  <Text style={styles.findingDetail}>{f.detail}</Text>
+        <Pressable
+          onPress={() => router.push("/scan")}
+          accessibilityRole="button"
+          style={{ minHeight: MIN_TOUCH, justifyContent: "center" }}
+        >
+          <GBText variant="small" tone="brand">
+            Have the document in hand? Photograph it instead →
+          </GBText>
+        </Pressable>
+
+        {result ? (
+          <Card>
+            <View style={{ gap: space.sm }}>
+              {result.disabled ? (
+                <Badge label="Turned off by an admin" tone="neutral" glyph="—" />
+              ) : result.degraded ? (
+                <Badge label="Standard checklist — not personalised" tone="warning" glyph="!" />
+              ) : null}
+
+              <GBText variant="heading">{result.label}</GBText>
+              <GBText variant="small" tone="muted">
+                {result.summary}
+              </GBText>
+
+              {result.findings.map((f) => (
+                <View
+                  key={f.id}
+                  style={{
+                    flexDirection: "row",
+                    gap: space.sm,
+                    paddingTop: space.sm,
+                    borderTopWidth: 1,
+                    borderTopColor: colors.border,
+                  }}
+                >
+                  <GBText
+                    variant="tag"
+                    style={{
+                      color:
+                        SEVERITY_TONE[f.severity] === "danger"
+                          ? colors.danger
+                          : SEVERITY_TONE[f.severity] === "warning"
+                            ? colors.amber
+                            : colors.clay6,
+                      width: 20,
+                    }}
+                  >
+                    {SEVERITY_MARK[f.severity]}
+                  </GBText>
+                  <View style={{ flex: 1, gap: 2 }}>
+                    <GBText variant="small">{f.label}</GBText>
+                    <GBText variant="small" tone="subtle">
+                      {f.detail}
+                    </GBText>
+                  </View>
                 </View>
-              </View>
-            ))}
-          </View>
-        )}
+              ))}
+            </View>
+          </Card>
+        ) : null}
       </ScrollView>
     </KeyboardAvoidingView>
   );
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#0A1628" },
-  content: { padding: 20, paddingTop: 60, paddingBottom: 40 },
-  header: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 4 },
-  headerTitle: { fontSize: 24, fontWeight: "700", color: "#FFFFFF" },
-  subtitle: { color: "#94A3B8", fontSize: 14, marginBottom: 16 },
-  label: { color: "#9CA3AF", fontSize: 13, fontWeight: "600", marginBottom: 8 },
-  typeGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 16 },
-  typeChip: {
-    paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8,
-    backgroundColor: "#1E293B", borderWidth: 1, borderColor: "#374151",
-  },
-  typeChipActive: { backgroundColor: "#78350F", borderColor: "#F59E0B" },
-  typeChipText: { color: "#94A3B8", fontSize: 13 },
-  typeChipTextActive: { color: "#FCD34D" },
-  textInput: {
-    backgroundColor: "#1E293B", borderRadius: 12, padding: 14,
-    color: "#FFFFFF", fontSize: 15, minHeight: 80, textAlignVertical: "top",
-    borderWidth: 1, borderColor: "#374151", marginBottom: 12,
-  },
-  checkButton: {
-    backgroundColor: "#F59E0B", borderRadius: 12, paddingVertical: 14, alignItems: "center",
-  },
-  buttonDisabled: { opacity: 0.4 },
-  checkText: { color: "#000", fontSize: 16, fontWeight: "600" },
-  resultCard: { backgroundColor: "#1E293B", borderRadius: 12, padding: 16, marginTop: 20 },
-  degradedBanner: { backgroundColor: "#78350F", borderRadius: 8, padding: 10, marginBottom: 12 },
-  degradedText: { color: "#FCD34D", fontSize: 13, textAlign: "center" },
-  resultLabel: { color: "#F1F5F9", fontSize: 18, fontWeight: "700", marginBottom: 4 },
-  resultSummary: { color: "#94A3B8", fontSize: 13, marginBottom: 16 },
-  finding: { flexDirection: "row", gap: 10, marginBottom: 12 },
-  findingContent: { flex: 1 },
-  findingLabel: { color: "#E2E8F0", fontSize: 14, fontWeight: "500" },
-  findingDetail: { color: "#94A3B8", fontSize: 12, marginTop: 2 },
-});
