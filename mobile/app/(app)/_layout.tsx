@@ -33,11 +33,12 @@ export default function AppLayout() {
     return <Redirect href="/(auth)/login" />;
   }
 
-  // A Firebase account with no profile behind it. Sending them to the app
-  // shell would render a home screen with nothing in it; the profile step is
-  // the only thing that can move them forward.
+  // A Firebase account with no profile behind it -- signup was interrupted
+  // between the two writes, or this is the first launch after it. Onboarding
+  // is the only thing that can move them forward; the app shell would render
+  // a home screen with nothing in it.
   if (state.status === "needs-profile") {
-    return <Redirect href="/(auth)/register" />;
+    return <Redirect href="/(auth)/onboarding" />;
   }
 
   return (
@@ -82,6 +83,11 @@ export default function AppLayout() {
         five-tab bar quietly becomes an eleven-tab bar.
       */}
       <Tabs.Screen name="messages" options={{ href: null }} />
+      <Tabs.Screen name="thread" options={{ href: null }} />
+      <Tabs.Screen name="notifications" options={{ href: null }} />
+      <Tabs.Screen name="tools" options={{ href: null }} />
+      <Tabs.Screen name="scan" options={{ href: null }} />
+      <Tabs.Screen name="offline" options={{ href: null }} />
       <Tabs.Screen name="documents" options={{ href: null }} />
       <Tabs.Screen name="opportunities" options={{ href: null }} />
       <Tabs.Screen name="ai" options={{ href: null }} />
