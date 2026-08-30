@@ -1,0 +1,30 @@
+{
+  "expo": {
+    "name": "GlobalBridge",
+    "slug": "globalbridge",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "globalbridge",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "app.globalbridge.mobile"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#0A1628"
+      },
+      "package": "app.globalbridge.mobile"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-secure-store",
+        {
+          "clipboardPermission": "Allow GlobalBridge to access clipboard for verification codes."
+        }
+      ]
+    ]
+  }
+}
