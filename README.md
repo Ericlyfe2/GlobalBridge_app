@@ -1,6 +1,6 @@
 # GlobalBridge App
 
-The API that serves the GlobalBridge native mobile client, plus (later) the client itself.
+The API that serves the GlobalBridge native mobile client, plus the client itself.
 
 This is a **standalone project**. It shares the PostgreSQL database and the Firebase Auth
 tenant with the existing GlobalBridge web platform, and it does not modify that repository.
@@ -41,7 +41,20 @@ migrations, and runs the real handlers against it (§9f). It found two bugs the 
 could not see: a table no migration created, and millisecond cursor truncation that made
 every delta endpoint re-deliver the same rows forever.
 
-Not built yet: the mobile app. See §9.
+The mobile app is in (`mobile/`): Expo + React Native, five-tab navigation (Home, Explore,
+Assistant, Journey, Profile), and every screen wired against a real running backend rather
+than mocked — home, opportunities, housing, messages, the AI assistant with conversation
+history, document upload and viewing, notifications, and settings (language, light/dark
+appearance with a persisted override, push-notification registration and a device list).
+The maintenance-mode and minimum-version gates are checked both at launch and reactively on
+every request. Server-issued deep links (push notifications, home alerts) resolve through
+one shared client-side router rather than being pushed at the OS router directly, since the
+backend's route shapes are web paths and the app's are not.
+
+Not yet built on mobile: a WebSocket client for live message/notification delivery (the
+backend's socket layer and the `/sync` and `/messages/since` catch-up endpoints are ready for
+one), saving opportunities or listings for later (no endpoint exists on either side yet), and
+biometric app-lock. See §9 for the backend-side gaps this list does not cover.
 
 ## Setup
 
@@ -55,6 +68,21 @@ npm run dev
 The server refuses to start on invalid configuration and prints every problem at once — a
 mobile client cannot be told "the server was misconfigured" in any useful way, so failing
 loudly at boot is the honest option.
+
+### Mobile
+
+```bash
+cd mobile
+npm install
+cp .env.example .env   # EXPO_PUBLIC_API_URL — 10.0.2.2 reaches the host from an Android emulator
+npm start
+```
+
+Firebase Auth needs real client config to sign in — `google-services.json` (Android) and
+`GoogleService-Info.plist` (iOS), from the same Firebase project the backend's `.env` points
+at. Neither is checked in. `mobile/google-services.placeholder.json` is a syntactically-valid
+fake, useful only for confirming the app builds and boots; every screen behind sign-in works
+against a real backend once real credentials are in place.
 
 ## Commands
 
