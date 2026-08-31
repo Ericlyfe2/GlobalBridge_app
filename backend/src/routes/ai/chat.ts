@@ -237,6 +237,7 @@ chatRouter.post("/", requireAuth, aiGuard("chat"), async (req, res, next) => {
       // Best-effort: the answer has already been paid for and is going back to
       // the user either way. Losing the transcript is worse than not losing it,
       // but far better than turning a good answer into an error.
+      let messageId: string | null = null;
       if (conversationId) {
         try {
           const userMessage = [...body.messages].reverse().find((m) => m.role === "user");
@@ -246,11 +247,12 @@ chatRouter.post("/", requireAuth, aiGuard("chat"), async (req, res, next) => {
               [conversationId, userMessage.content],
             );
           }
-          await query(
+          const inserted = await queryOne<{ id: string }>(
             `INSERT INTO ai_messages (conversation_id, role, content, sources)
-             VALUES ($1, 'assistant', $2, $3)`,
+             VALUES ($1, 'assistant', $2, $3) RETURNING id`,
             [conversationId, reply, JSON.stringify(sources)],
           );
+          messageId = inserted?.id ?? null;
           await query(
             `UPDATE ai_conversations
                 SET message_count = message_count + 2, updated_at = NOW()
@@ -268,6 +270,7 @@ chatRouter.post("/", requireAuth, aiGuard("chat"), async (req, res, next) => {
         sources,
         lang: locale,
         conversation_id: conversationId,
+        message_id: messageId,
         retrieval: rag.method,
         usage: {
           input_tokens: completion.inputTokens,

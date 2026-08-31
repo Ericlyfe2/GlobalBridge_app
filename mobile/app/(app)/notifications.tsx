@@ -11,6 +11,7 @@ import {
   type Notification,
 } from "@/src/api/endpoints";
 import { MIN_TOUCH } from "@/src/theme/tokens";
+import { openDeepLink } from "@/src/lib/deepLinks";
 
 /**
  * Notification centre.
@@ -81,7 +82,7 @@ export default function NotificationsScreen() {
         setItems((prev) => prev.map((n) => (n.id === item.id ? { ...n, read: true } : n)));
         markNotificationsRead([item.id]).catch(() => setItems(previous));
       }
-      if (item.deep_link) router.push(item.deep_link as never);
+      if (item.deep_link) openDeepLink(router, item.deep_link);
     },
     [items, router],
   );

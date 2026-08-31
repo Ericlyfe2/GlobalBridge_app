@@ -7,3 +7,23 @@ dist/
 # Expo
 .expo/
 mobile/.expo/
+
+# Playwright
+e2e/test-results/
+e2e/playwright-report/
+e2e/*.log
+e2e/*.pid
+
+# Native projects — regenerated via `npx expo prebuild`, never hand-edited.
+# Contains .gradle/.kotlin/.cxx build caches that do not belong in history.
+mobile/android/
+mobile/ios/
+
+# Stray local Android SDK copies (emulator, platform-tools, system-images) —
+# accidentally created inside the repo during local dev-environment setup.
+# The real SDK lives outside the project at C:\android-sdk.
+android-sdk*/
+mobile/android-sdk*/
+
+# Editor/backup cruft
+*.bak

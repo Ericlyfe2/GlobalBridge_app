@@ -11,10 +11,12 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 
 import { useTheme } from "@/src/theme/ThemeProvider";
-import { GBText, Card, Button, Skeleton, ErrorState, Badge } from "@/src/components/ui";
+import { GBText, Card, Button, Skeleton, ErrorState, Badge, StaleBanner } from "@/src/components/ui";
 import { fetchMessages, sendMessage, type Message } from "@/src/api/endpoints";
 import { MIN_TOUCH } from "@/src/theme/tokens";
 import { useAuth } from "@/src/contexts/AuthContext";
+import { useConnectivity } from "@/src/hooks/useConnectivity";
+import { cacheGet, cacheSet } from "@/src/services/storage";
 
 /**
  * One conversation.
@@ -42,26 +44,44 @@ export default function ThreadScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ id?: string; name?: string }>();
   const auth = useAuth();
+  const { online } = useConnectivity();
 
   const conversationId = params.id;
   const me = auth.status === "signed-in" ? auth.profile.id : null;
+  const cacheKey = conversationId ? `messages.${conversationId}` : null;
 
   const [messages, setMessages] = useState<Pending[]>([]);
   const [draft, setDraft] = useState("");
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
+  const [cachedAt, setCachedAt] = useState<number | undefined>();
   const listRef = useRef<FlatList<Pending>>(null);
 
+  /**
+   * Cached per conversation. offline.tsx promises "Messages you have already
+   * opened" still work with no connection — this is what makes that true
+   * rather than aspirational, the same cache-then-fall-back pattern Home uses
+   * for its own payload.
+   */
   const load = useCallback(async () => {
-    if (!conversationId) return;
+    if (!conversationId || !cacheKey) return;
     try {
       const page = await fetchMessages(conversationId, { limit: 50 });
       // The API returns newest first; an inverted list wants that order as-is.
       setMessages(page.items);
+      setCachedAt(undefined);
       setState("ready");
+      await cacheSet(cacheKey, page.items);
     } catch {
-      setState("error");
+      const cached = await cacheGet<Pending[]>(cacheKey);
+      if (cached) {
+        setMessages(cached.value);
+        setCachedAt(cached.at);
+        setState("ready");
+      } else {
+        setState("error");
+      }
     }
-  }, [conversationId]);
+  }, [conversationId, cacheKey]);
 
   useEffect(() => {
     void load();
@@ -146,6 +166,12 @@ export default function ThreadScreen() {
           {params.name ?? "Conversation"}
         </GBText>
       </View>
+
+      {cachedAt ? (
+        <View style={{ paddingHorizontal: space.lg, paddingTop: space.sm }}>
+          <StaleBanner at={cachedAt} online={online} />
+        </View>
+      ) : null}
 
       {state === "loading" ? (
         <View style={{ padding: space.lg, gap: space.sm }}>

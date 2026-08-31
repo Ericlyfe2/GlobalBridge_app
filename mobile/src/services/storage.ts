@@ -79,6 +79,23 @@ export async function getSyncCursor(): Promise<string | null> {
   return AsyncStorage.getItem(SYNC_CURSOR_KEY);
 }
 
+const THEME_MODE_KEY = "gb.theme.mode";
+
+/**
+ * The explicit light/dark override ThemeProvider's own design promises from
+ * Settings. Deliberately outside `CACHE_PREFIX` and untouched by
+ * `clearLocalCache`: how a phone's screen should look is a property of the
+ * phone, not of whichever account happens to be signed in on it.
+ */
+export async function getThemeMode(): Promise<"light" | "dark" | "system" | null> {
+  const raw = await AsyncStorage.getItem(THEME_MODE_KEY);
+  return raw === "light" || raw === "dark" || raw === "system" ? raw : null;
+}
+
+export async function setThemeMode(mode: "light" | "dark" | "system"): Promise<void> {
+  await AsyncStorage.setItem(THEME_MODE_KEY, mode);
+}
+
 export async function setSyncCursor(cursor: string): Promise<void> {
   await AsyncStorage.setItem(SYNC_CURSOR_KEY, cursor);
 }

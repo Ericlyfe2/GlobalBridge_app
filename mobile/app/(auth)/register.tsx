@@ -7,22 +7,25 @@
  */
 
 import { useState } from "react";
-import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  StyleSheet,
-  Alert,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-} from "react-native";
+import { View, TextInput, Alert, KeyboardAvoidingView, Platform, ScrollView, Pressable } from "react-native";
 import { Link, router } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+
 import { useAuthActions } from "@/src/contexts/AuthContext";
+import { useTheme } from "@/src/theme/ThemeProvider";
+import { GBText, Button } from "@/src/components/ui";
+import { MIN_TOUCH } from "@/src/theme/tokens";
+
+const ROLES = [
+  { value: "student", label: "Student" },
+  { value: "mentor", label: "Mentor" },
+  { value: "employer", label: "Employer" },
+] as const;
 
 export default function RegisterScreen() {
   const { signUp } = useAuthActions();
+  const { colors, space, radius } = useTheme();
+  const insets = useSafeAreaInsets();
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -77,106 +80,119 @@ export default function RegisterScreen() {
     }
   };
 
+  const inputStyle = {
+    minHeight: 52,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: space.md,
+    color: colors.ink,
+    fontSize: 16,
+  };
+
   return (
     <KeyboardAvoidingView
-      style={styles.container}
+      style={{ flex: 1, backgroundColor: colors.bg }}
       behavior={Platform.OS === "ios" ? "padding" : "height"}
     >
-      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <Text style={styles.title}>Create Account</Text>
-        <Text style={styles.subtitle}>Start your immigration journey.</Text>
+      <ScrollView
+        contentContainerStyle={{
+          flexGrow: 1,
+          justifyContent: "center",
+          paddingHorizontal: space.xl,
+          paddingTop: insets.top + space.xxl,
+          paddingBottom: insets.bottom + space.xxl,
+        }}
+        keyboardShouldPersistTaps="handled"
+      >
+        <GBText variant="display" style={{ textAlign: "center", marginBottom: space.xs }}>
+          Create Account
+        </GBText>
+        <GBText variant="body" tone="muted" style={{ textAlign: "center", marginBottom: space.xl }}>
+          Start your immigration journey.
+        </GBText>
 
-        <View style={styles.form}>
+        <View style={{ gap: space.md }}>
           <TextInput
-            style={styles.input}
+            style={inputStyle}
             placeholder="Full name"
-            placeholderTextColor="#6B7280"
+            placeholderTextColor={colors.ink5}
             value={fullName}
             onChangeText={setFullName}
             autoCapitalize="words"
             autoComplete="name"
+            accessibilityLabel="Full name"
           />
           <TextInput
-            style={styles.input}
+            style={inputStyle}
             placeholder="Email"
-            placeholderTextColor="#6B7280"
+            placeholderTextColor={colors.ink5}
             value={email}
             onChangeText={setEmail}
             autoCapitalize="none"
             keyboardType="email-address"
             autoComplete="email"
+            accessibilityLabel="Email"
           />
           <TextInput
-            style={styles.input}
+            style={inputStyle}
             placeholder="Password (min 8 characters)"
-            placeholderTextColor="#6B7280"
+            placeholderTextColor={colors.ink5}
             value={password}
             onChangeText={setPassword}
             secureTextEntry
             autoComplete="new-password"
+            accessibilityLabel="Password"
           />
 
-          <Text style={styles.label}>I am a...</Text>
-          <View style={styles.roleRow}>
-            {(["student", "mentor", "employer"] as const).map((r) => (
-              <TouchableOpacity
-                key={r}
-                style={[styles.roleButton, role === r && styles.roleButtonActive]}
-                onPress={() => setRole(r)}
-              >
-                <Text style={[styles.roleText, role === r && styles.roleTextActive]}>
-                  {r.charAt(0).toUpperCase() + r.slice(1)}
-                </Text>
-              </TouchableOpacity>
-            ))}
+          <GBText variant="label" tone="muted" style={{ marginTop: space.xs }}>
+            I am a...
+          </GBText>
+          <View style={{ flexDirection: "row", gap: space.sm }}>
+            {ROLES.map((r) => {
+              const active = r.value === role;
+              return (
+                <Pressable
+                  key={r.value}
+                  onPress={() => setRole(r.value)}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: active }}
+                  style={{
+                    flex: 1,
+                    minHeight: MIN_TOUCH,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    borderRadius: radius.md,
+                    backgroundColor: active ? colors.claysoft : colors.surface,
+                    borderWidth: 1,
+                    borderColor: active ? colors.clay : colors.border,
+                  }}
+                >
+                  <GBText variant="label" style={{ color: active ? colors.clay6 : colors.ink6 }}>
+                    {r.label}
+                  </GBText>
+                </Pressable>
+              );
+            })}
           </View>
 
-          <TouchableOpacity
-            style={[styles.button, loading && styles.buttonDisabled]}
-            onPress={handleRegister}
-            disabled={loading}
-          >
-            <Text style={styles.buttonText}>
-              {loading ? "Creating account..." : "Create Account"}
-            </Text>
-          </TouchableOpacity>
+          <Button
+            label={loading ? "Creating account..." : "Create Account"}
+            onPress={() => void handleRegister()}
+            loading={loading}
+            style={{ marginTop: space.xs }}
+          />
         </View>
 
         <Link href="/(auth)/login" asChild>
-          <TouchableOpacity style={styles.linkButton}>
-            <Text style={styles.linkText}>
-              Already have an account? <Text style={styles.linkBold}>Sign in</Text>
-            </Text>
-          </TouchableOpacity>
+          <Pressable style={{ marginTop: space.xl, alignItems: "center" }}>
+            <GBText variant="small" tone="muted">
+              Already have an account? <GBText variant="small" tone="brand">Sign in</GBText>
+            </GBText>
+          </Pressable>
         </Link>
       </ScrollView>
     </KeyboardAvoidingView>
   );
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#0A1628" },
-  content: { flexGrow: 1, justifyContent: "center", paddingHorizontal: 24, paddingVertical: 40 },
-  title: { fontSize: 32, fontWeight: "700", color: "#FFFFFF", textAlign: "center", marginBottom: 8 },
-  subtitle: { fontSize: 16, color: "#9CA3AF", textAlign: "center", marginBottom: 32 },
-  form: { gap: 14 },
-  input: {
-    backgroundColor: "#1F2937", borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14,
-    fontSize: 16, color: "#FFFFFF", borderWidth: 1, borderColor: "#374151",
-  },
-  label: { color: "#9CA3AF", fontSize: 14, marginTop: 8 },
-  roleRow: { flexDirection: "row", gap: 10 },
-  roleButton: {
-    flex: 1, paddingVertical: 12, borderRadius: 10, alignItems: "center",
-    backgroundColor: "#1F2937", borderWidth: 1, borderColor: "#374151",
-  },
-  roleButtonActive: { backgroundColor: "#1E40AF", borderColor: "#3B82F6" },
-  roleText: { color: "#9CA3AF", fontSize: 14, fontWeight: "500" },
-  roleTextActive: { color: "#FFFFFF" },
-  button: { backgroundColor: "#3B82F6", borderRadius: 12, paddingVertical: 14, alignItems: "center", marginTop: 8 },
-  buttonDisabled: { opacity: 0.6 },
-  buttonText: { color: "#FFFFFF", fontSize: 16, fontWeight: "600" },
-  linkButton: { marginTop: 24, alignItems: "center" },
-  linkText: { color: "#9CA3AF", fontSize: 14 },
-  linkBold: { color: "#3B82F6", fontWeight: "600" },
-});

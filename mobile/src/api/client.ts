@@ -72,6 +72,7 @@ type TokenGetter = (forceRefresh: boolean) => Promise<string | null>;
 let getToken: TokenGetter | null = null;
 let onSessionEnded: (() => void) | null = null;
 let onUpdateRequired: ((info: UpdateRequired) => void) | null = null;
+let onMaintenance: ((retryAfterSeconds: number) => void) | null = null;
 
 export type UpdateRequired = {
   minSupportedVersion: string;
@@ -83,10 +84,12 @@ export function configureApi(opts: {
   getToken: TokenGetter;
   onSessionEnded: () => void;
   onUpdateRequired: (info: UpdateRequired) => void;
+  onMaintenance: (retryAfterSeconds: number) => void;
 }) {
   getToken = opts.getToken;
   onSessionEnded = opts.onSessionEnded;
   onUpdateRequired = opts.onUpdateRequired;
+  onMaintenance = opts.onMaintenance;
 }
 
 api.interceptors.request.use(async (config: InternalAxiosRequestConfig) => {
@@ -119,6 +122,15 @@ api.interceptors.response.use(
         updateUrl: String(body?.updateUrl ?? ""),
       });
       throw new ApiError(status, code, message);
+    }
+
+    // ── 503 server/maintenance: the whole API is down for everyone ──────
+    // Same "no screen should render normally" treatment as 426 — retrying
+    // the token or the request cannot help when the server itself refused it.
+    if (status === 503 && code === "server/maintenance") {
+      const retryAfter = Number(error.response?.headers?.["retry-after"]);
+      onMaintenance?.(Number.isFinite(retryAfter) ? retryAfter : 300);
+      throw new ApiError(status, code, message, Number.isFinite(retryAfter) ? retryAfter : undefined);
     }
 
     if (status === 401) {

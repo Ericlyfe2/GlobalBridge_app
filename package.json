@@ -3,7 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "description": "GlobalBridge mobile client + the API that serves it. Backend-first.",
-  "workspaces": ["backend", "mobile"],
+  "workspaces": [
+    "backend",
+    "mobile"
+  ],
   "scripts": {
     "dev": "npm --workspace backend run dev",
     "build": "npm --workspace backend run build",
@@ -12,6 +15,17 @@
     "migrate": "npm --workspace backend run migrate",
     "migrate:status": "npm --workspace backend run migrate:status",
     "mobile": "npm --workspace mobile start",
-    "mobile:typecheck": "npm --workspace mobile run typecheck"
+    "mobile:typecheck": "npm --workspace mobile run typecheck",
+    "test:e2e": "playwright test",
+    "test:e2e:web": "playwright test --project=chromium --headed"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.62.1",
+    "@types/react": "~19.1.10"
+  },
+  "overrides": {
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "react-native": "0.81.5"
   }
 }

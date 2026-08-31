@@ -1,24 +1,23 @@
-import { View, Text, StyleSheet } from "react-native";
-import { Link, useSegments } from "expo-router";
+import { View } from "react-native";
+import { Link } from "expo-router";
+
+import { useTheme } from "@/src/theme/ThemeProvider";
+import { GBText } from "@/src/components/ui";
 
 export default function NotFoundScreen() {
-  const segments = useSegments();
+  const { colors, space } = useTheme();
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>404</Text>
-      <Text style={styles.subtitle}>Page not found</Text>
-      <Link href="/" style={styles.link}>
-        <Text style={styles.linkText}>Go home</Text>
+    <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: colors.bg }}>
+      <GBText variant="display">404</GBText>
+      <GBText variant="body" tone="muted" style={{ marginTop: space.sm }}>
+        Page not found
+      </GBText>
+      <Link href="/" style={{ marginTop: space.lg }}>
+        <GBText variant="body" tone="brand">
+          Go home
+        </GBText>
       </Link>
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#0A1628" },
-  title: { fontSize: 48, fontWeight: "700", color: "#FFFFFF" },
-  subtitle: { color: "#94A3B8", fontSize: 16, marginTop: 8 },
-  link: { marginTop: 20 },
-  linkText: { color: "#3B82F6", fontSize: 16 },
-});

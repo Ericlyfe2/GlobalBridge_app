@@ -8,6 +8,7 @@ import { GBText, Card, Badge, ProgressBar, Skeleton, ErrorState, StaleBanner } f
 import { fetchHome, type HomePayload } from "@/src/api/endpoints";
 import { useConnectivity } from "@/src/hooks/useConnectivity";
 import { cacheGet, cacheSet } from "@/src/services/storage";
+import { openDeepLink } from "@/src/lib/deepLinks";
 
 /**
  * Home.
@@ -99,7 +100,7 @@ export default function HomeScreen() {
 
       <Greeting name={data.user.full_name} unread={data.unread} />
 
-      <NextAction data={data} onOpen={(href) => router.push(href as never)} />
+      <NextAction data={data} onOpen={(href) => openDeepLink(router, href)} />
 
       {data.checklist ? (
         <Card onPress={() => router.push("/journey")} accessibilityLabel="Open your visa roadmap">
@@ -130,7 +131,7 @@ export default function HomeScreen() {
               title={alert.title}
               body={alert.body}
               onPress={() => {
-                if (alert.deep_link) router.push(alert.deep_link as never);
+                if (alert.deep_link) openDeepLink(router, alert.deep_link);
               }}
             />
           ))}
@@ -150,7 +151,7 @@ export default function HomeScreen() {
           {data.opportunities.map((opportunity) => (
             <Card
               key={opportunity.id}
-              onPress={() => router.push(`/opportunities?id=${opportunity.id}` as never)}
+              onPress={() => router.push({ pathname: "/opportunity-view", params: { id: opportunity.id } } as never)}
               style={{ paddingVertical: space.md }}
             >
               <View style={{ flexDirection: "row", gap: space.sm, alignItems: "flex-start" }}>

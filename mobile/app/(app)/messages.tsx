@@ -6,16 +6,22 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import {
-  View, Text, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator,
-} from "react-native";
+import { View, FlatList, ActivityIndicator } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { get } from "@/src/api/client";
-import type { Conversation, ListEnvelope } from "@/src/api/types";
+
+import { fetchConversations, type Conversation } from "@/src/api/endpoints";
+import { useTheme } from "@/src/theme/ThemeProvider";
+import { GBText, Card, EmptyState } from "@/src/components/ui";
 
 const PAGE_SIZE = 20;
 
 export default function MessagesScreen() {
+  const { colors, space, radius } = useTheme();
+  const insets = useSafeAreaInsets();
+  const router = useRouter();
+
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loading, setLoading] = useState(true);
   const [hasMore, setHasMore] = useState(true);
@@ -23,10 +29,7 @@ export default function MessagesScreen() {
 
   const fetchPage = useCallback(async (pageOffset: number) => {
     try {
-      const data = await get<ListEnvelope<Conversation>>("/messages", {
-        limit: PAGE_SIZE,
-        offset: pageOffset,
-      });
+      const data = await fetchConversations({ limit: PAGE_SIZE, offset: pageOffset });
       if (pageOffset === 0) {
         setConversations(data.items);
       } else {
@@ -46,43 +49,74 @@ export default function MessagesScreen() {
   }, [fetchPage]);
 
   const renderItem = ({ item }: { item: Conversation }) => (
-    <TouchableOpacity style={styles.row}>
-      <View style={styles.avatar}>
-        <Text style={styles.avatarText}>
+    <Card
+      onPress={() =>
+        router.push({
+          pathname: "/thread",
+          params: { id: item.id, name: item.other_user_name },
+        } as never)
+      }
+      style={{ flexDirection: "row", alignItems: "center", gap: space.md, marginBottom: space.sm }}
+    >
+      <View
+        style={{
+          width: 44,
+          height: 44,
+          borderRadius: 22,
+          backgroundColor: colors.clay,
+          justifyContent: "center",
+          alignItems: "center",
+        }}
+      >
+        <GBText variant="label" style={{ color: "#ffffff" }}>
           {item.other_user_name.charAt(0).toUpperCase()}
-        </Text>
+        </GBText>
       </View>
-      <View style={styles.rowContent}>
-        <View style={styles.rowTop}>
-          <Text style={styles.name} numberOfLines={1}>{item.other_user_name}</Text>
+      <View style={{ flex: 1 }}>
+        <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 2 }}>
+          <GBText variant="label" numberOfLines={1} style={{ flex: 1 }}>
+            {item.other_user_name}
+          </GBText>
           {item.last_message_at && (
-            <Text style={styles.time}>
+            <GBText variant="small" tone="subtle">
               {formatRelativeTime(item.last_message_at)}
-            </Text>
+            </GBText>
           )}
         </View>
-        <View style={styles.rowBottom}>
-          <Text style={styles.preview} numberOfLines={1}>
+        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+          <GBText variant="small" tone="subtle" numberOfLines={1} style={{ flex: 1 }}>
             {item.last_message ?? "No messages yet"}
-          </Text>
-          {item.unread_count > 0 && (
-            <View style={styles.unreadBadge}>
-              <Text style={styles.unreadText}>{item.unread_count}</Text>
+          </GBText>
+          {Number(item.unread_count) > 0 && (
+            <View
+              style={{
+                backgroundColor: colors.clay,
+                borderRadius: radius.pill,
+                minWidth: 20,
+                height: 20,
+                justifyContent: "center",
+                alignItems: "center",
+                paddingHorizontal: 6,
+              }}
+            >
+              <GBText variant="tag" style={{ color: "#ffffff" }}>
+                {item.unread_count}
+              </GBText>
             </View>
           )}
         </View>
       </View>
-    </TouchableOpacity>
+    </Card>
   );
 
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Messages</Text>
+    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+      <View style={{ paddingTop: insets.top + space.md, paddingHorizontal: space.lg, paddingBottom: space.sm }}>
+        <GBText variant="title">Messages</GBText>
       </View>
       {loading ? (
-        <View style={styles.center}>
-          <ActivityIndicator size="large" color="#3B82F6" />
+        <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
+          <ActivityIndicator size="large" color={colors.clay} />
         </View>
       ) : (
         <FlatList
@@ -91,11 +125,13 @@ export default function MessagesScreen() {
           keyExtractor={(item) => item.id}
           onEndReached={() => hasMore && fetchPage(offset)}
           onEndReachedThreshold={0.5}
-          contentContainerStyle={styles.list}
+          contentContainerStyle={{ padding: space.lg }}
           ListEmptyComponent={
-            <View style={styles.center}>
-              <Ionicons name="chatbubbles-outline" size={48} color="#374151" />
-              <Text style={styles.emptyText}>No conversations yet</Text>
+            <View style={{ paddingTop: space.xxl }}>
+              <EmptyState
+                title="No conversations yet"
+                body="Messages from mentors and employers will show up here."
+              />
             </View>
           }
         />
@@ -114,32 +150,3 @@ function formatRelativeTime(iso: string): string {
   const days = Math.floor(hours / 24);
   return `${days}d`;
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#0A1628" },
-  header: { paddingTop: 60, paddingHorizontal: 20, paddingBottom: 12 },
-  headerTitle: { fontSize: 28, fontWeight: "700", color: "#FFFFFF" },
-  center: { flex: 1, justifyContent: "center", alignItems: "center", gap: 12 },
-  list: { padding: 20 },
-  row: {
-    flexDirection: "row", alignItems: "center", gap: 12,
-    backgroundColor: "#1E293B", borderRadius: 12, padding: 14, marginBottom: 8,
-  },
-  avatar: {
-    width: 44, height: 44, borderRadius: 22, backgroundColor: "#3B82F6",
-    justifyContent: "center", alignItems: "center",
-  },
-  avatarText: { color: "#FFFFFF", fontSize: 18, fontWeight: "600" },
-  rowContent: { flex: 1 },
-  rowTop: { flexDirection: "row", justifyContent: "space-between", marginBottom: 2 },
-  name: { color: "#F1F5F9", fontSize: 15, fontWeight: "600", flex: 1 },
-  time: { color: "#64748B", fontSize: 12 },
-  rowBottom: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  preview: { color: "#94A3B8", fontSize: 13, flex: 1 },
-  unreadBadge: {
-    backgroundColor: "#3B82F6", borderRadius: 10, minWidth: 20, height: 20,
-    justifyContent: "center", alignItems: "center", paddingHorizontal: 6,
-  },
-  unreadText: { color: "#FFFFFF", fontSize: 11, fontWeight: "700" },
-  emptyText: { color: "#6B7280", fontSize: 16 },
-});

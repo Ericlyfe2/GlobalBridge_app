@@ -6,17 +6,22 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import {
-  View, Text, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator,
-} from "react-native";
+import { View, FlatList, ActivityIndicator } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+
 import { get } from "@/src/api/client";
 import type { Opportunity, ListEnvelope } from "@/src/api/types";
+import { useTheme } from "@/src/theme/ThemeProvider";
+import { GBText, Card, Badge, EmptyState } from "@/src/components/ui";
 
 const PAGE_SIZE = 20;
 
 export default function OpportunitiesScreen() {
+  const { colors, space } = useTheme();
+  const insets = useSafeAreaInsets();
+
   const [items, setItems] = useState<Opportunity[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -58,39 +63,37 @@ export default function OpportunitiesScreen() {
   };
 
   const renderItem = ({ item }: { item: Opportunity }) => (
-    <TouchableOpacity
-      style={styles.card}
-      onPress={() => router.push(`/(app)/opportunities/${item.id}`)}
+    <Card
+      onPress={() => router.push({ pathname: "/opportunity-view", params: { id: item.id } } as never)}
+      style={{ marginBottom: space.md }}
     >
-      <View style={styles.cardTop}>
-        <View style={styles.typeBadge}>
-          <Text style={styles.typeText}>{item.type}</Text>
-        </View>
-        {item.is_verified && (
-          <Ionicons name="checkmark-circle" size={16} color="#10B981" />
-        )}
+      <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+        <Badge label={item.type} tone="info" />
+        {item.is_verified && <Ionicons name="checkmark-circle" size={16} color={colors.leaf} />}
       </View>
-      <Text style={styles.title} numberOfLines={2}>{item.title}</Text>
-      <Text style={styles.meta}>
+      <GBText variant="label" numberOfLines={2} style={{ marginBottom: 4 }}>
+        {item.title}
+      </GBText>
+      <GBText variant="small" tone="subtle">
         {item.country}
         {item.funding_amount ? ` · ${item.funding_amount} ${item.currency ?? ""}` : ""}
-      </Text>
+      </GBText>
       {item.deadline && (
-        <Text style={styles.deadline}>
+        <GBText variant="small" tone="warning" style={{ marginTop: 4 }}>
           Closes {new Date(item.deadline).toLocaleDateString()}
-        </Text>
+        </GBText>
       )}
-    </TouchableOpacity>
+    </Card>
   );
 
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Opportunities</Text>
+    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+      <View style={{ paddingTop: insets.top + space.md, paddingHorizontal: space.lg, paddingBottom: space.sm }}>
+        <GBText variant="title">Opportunities</GBText>
       </View>
       {loading ? (
-        <View style={styles.center}>
-          <ActivityIndicator size="large" color="#3B82F6" />
+        <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
+          <ActivityIndicator size="large" color={colors.clay} />
         </View>
       ) : (
         <FlatList
@@ -99,15 +102,15 @@ export default function OpportunitiesScreen() {
           keyExtractor={(item) => item.id}
           onEndReached={loadMore}
           onEndReachedThreshold={0.5}
-          contentContainerStyle={styles.list}
+          contentContainerStyle={{ padding: space.lg }}
           refreshing={refreshing}
           onRefresh={() => { setOffset(0); fetchPage(0, true); }}
           ListFooterComponent={
-            hasMore ? <ActivityIndicator style={{ margin: 16 }} color="#3B82F6" /> : null
+            hasMore ? <ActivityIndicator style={{ margin: 16 }} color={colors.clay} /> : null
           }
           ListEmptyComponent={
-            <View style={styles.center}>
-              <Text style={styles.emptyText}>No opportunities found.</Text>
+            <View style={{ paddingTop: space.xxl }}>
+              <EmptyState title="No opportunities found" body="Check back soon — new listings are added regularly." />
             </View>
           }
         />
@@ -115,21 +118,3 @@ export default function OpportunitiesScreen() {
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#0A1628" },
-  header: { paddingTop: 60, paddingHorizontal: 20, paddingBottom: 12 },
-  headerTitle: { fontSize: 28, fontWeight: "700", color: "#FFFFFF" },
-  center: { flex: 1, justifyContent: "center", alignItems: "center" },
-  list: { padding: 20 },
-  card: {
-    backgroundColor: "#1E293B", borderRadius: 12, padding: 16, marginBottom: 12,
-  },
-  cardTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 6 },
-  typeBadge: { backgroundColor: "#1E3A5F", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
-  typeText: { color: "#60A5FA", fontSize: 11, fontWeight: "600", textTransform: "uppercase" },
-  title: { color: "#F1F5F9", fontSize: 16, fontWeight: "600", marginBottom: 4 },
-  meta: { color: "#94A3B8", fontSize: 13 },
-  deadline: { color: "#F59E0B", fontSize: 12, marginTop: 4 },
-  emptyText: { color: "#6B7280", fontSize: 16 },
-});

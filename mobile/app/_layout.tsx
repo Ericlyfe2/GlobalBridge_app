@@ -96,6 +96,57 @@ function SessionEndedScreen() {
   );
 }
 
+/**
+ * 503 server/maintenance — the whole API is down for everyone, not just this
+ * account. "Try again" re-checks the session rather than reloading the app,
+ * since the window closing is not a Firebase event the auth listener would
+ * ever see on its own.
+ */
+function MaintenanceScreen({ retryAfterSeconds }: { retryAfterSeconds: number }) {
+  const { colors, space } = useTheme();
+  const { retryConnection } = useAuthActions();
+  const [retrying, setRetrying] = React.useState(false);
+
+  return (
+    <View
+      style={{
+        flex: 1,
+        backgroundColor: colors.bg,
+        alignItems: "center",
+        justifyContent: "center",
+        padding: space.xl,
+        gap: space.md,
+      }}
+    >
+      <GBText variant="title" style={{ textAlign: "center" }}>
+        GlobalBridge is briefly unavailable
+      </GBText>
+      <GBText variant="body" tone="muted" style={{ textAlign: "center" }}>
+        We are making an update. This usually takes a few minutes — nothing
+        you have saved is affected.
+      </GBText>
+      <Button
+        label={retrying ? "Checking…" : "Try again"}
+        loading={retrying}
+        onPress={async () => {
+          setRetrying(true);
+          try {
+            await retryConnection();
+          } finally {
+            setRetrying(false);
+          }
+        }}
+        style={{ marginTop: space.sm, alignSelf: "stretch" }}
+      />
+      {retryAfterSeconds ? (
+        <GBText variant="small" tone="subtle">
+          Usually back within a few minutes
+        </GBText>
+      ) : null}
+    </View>
+  );
+}
+
 function Gate() {
   const state = useAuth();
   const { colors, isDark } = useTheme();
@@ -105,6 +156,15 @@ function Gate() {
       <>
         <StatusBar style={isDark ? "light" : "dark"} />
         <UpdateRequiredScreen url={state.info.updateUrl} latest={state.info.latestVersion} />
+      </>
+    );
+  }
+
+  if (state.status === "maintenance") {
+    return (
+      <>
+        <StatusBar style={isDark ? "light" : "dark"} />
+        <MaintenanceScreen retryAfterSeconds={state.retryAfterSeconds} />
       </>
     );
   }

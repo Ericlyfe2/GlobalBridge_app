@@ -1,6 +1,7 @@
-import React, { createContext, useContext, useMemo } from "react";
+import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { useColorScheme, I18nManager } from "react-native";
 import { lightColors, darkColors, type ColorTokens, fonts, type, space, radius } from "./tokens";
+import { getThemeMode, setThemeMode as persistThemeMode } from "../services/storage";
 
 /**
  * Theme.
@@ -23,18 +24,32 @@ export type Theme = {
   radius: typeof radius;
   /** True when the active locale is right-to-left. */
   isRTL: boolean;
+  /** The explicit override, or "system" if none has been set. */
+  mode: ThemeMode;
+  setMode: (mode: ThemeMode) => void;
 };
 
 const ThemeCtx = createContext<Theme | null>(null);
 
-export function ThemeProvider({
-  mode = "system",
-  children,
-}: {
-  mode?: ThemeMode;
-  children: React.ReactNode;
-}) {
+export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const scheme = useColorScheme();
+  const [mode, setModeState] = useState<ThemeMode>("system");
+
+  // The stored override loads after first paint, so the app briefly renders
+  // by the OS setting and then (rarely) flips once someone's chosen override
+  // is read back. That one-frame flip is preferable to blocking the whole app
+  // behind an AsyncStorage read before anything can render.
+  useEffect(() => {
+    getThemeMode().then((stored) => {
+      if (stored) setModeState(stored);
+    });
+  }, []);
+
+  const setMode = (next: ThemeMode) => {
+    setModeState(next);
+    void persistThemeMode(next);
+  };
+
   const isDark = mode === "system" ? scheme === "dark" : mode === "dark";
 
   const value = useMemo<Theme>(
@@ -46,8 +61,10 @@ export function ThemeProvider({
       space,
       radius,
       isRTL: I18nManager.isRTL,
+      mode,
+      setMode,
     }),
-    [isDark],
+    [isDark, mode],
   );
 
   return <ThemeCtx.Provider value={value}>{children}</ThemeCtx.Provider>;

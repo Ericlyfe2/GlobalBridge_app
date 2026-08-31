@@ -29,14 +29,16 @@ export default function OfflineScreen() {
 
   const works = [
     "Your visa roadmap and how far through it you are",
-    "Documents you have already added, and their status",
     "Messages you have already opened",
-    "Anything you saved",
   ];
 
   const doesNot = [
     "The AI assistant and every AI tool",
-    "Opening a document — those links are issued fresh each time",
+    // Deliberate, not an oversight: nothing document-related is ever cached,
+    // even just the list and its statuses -- storage.ts refuses to write
+    // anything under a key that so much as names a document.
+    "Your document list and their statuses",
+    "Anything you save for later",
     "New listings, funding and mentors",
   ];
 

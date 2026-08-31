@@ -1,14 +1,33 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import auth, { type FirebaseAuthTypes } from "@react-native-firebase/auth";
-import { configureApi, type UpdateRequired } from "../api/client";
+import { configureApi, APP_VERSION, type UpdateRequired } from "../api/client";
 import {
   fetchMe,
+  fetchAppConfig,
   registerProfile,
   unregisterDeviceToken,
   type Profile,
 } from "../api/endpoints";
-import { getDeviceToken, clearDeviceToken } from "../services/push";
+import {
+  getDeviceToken,
+  clearDeviceToken,
+  getPermissionStatus,
+  registerCurrentToken,
+  watchTokenRefresh,
+} from "../services/push";
 import { clearLocalCache } from "../services/storage";
+
+/** `"1.2.10" < "1.3.0"` semver compare, good enough for a three-part version string. */
+function versionBelow(current: string, floor: string): boolean {
+  const a = current.split(".").map(Number);
+  const b = floor.split(".").map(Number);
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const x = a[i] ?? 0;
+    const y = b[i] ?? 0;
+    if (x !== y) return x < y;
+  }
+  return false;
+}
 
 /**
  * Authentication.
@@ -24,7 +43,8 @@ export type AuthState =
   | { status: "needs-profile"; user: FirebaseAuthTypes.User }
   | { status: "signed-in"; user: FirebaseAuthTypes.User; profile: Profile }
   | { status: "session-ended" }
-  | { status: "update-required"; info: UpdateRequired };
+  | { status: "update-required"; info: UpdateRequired }
+  | { status: "maintenance"; retryAfterSeconds: number };
 
 type AuthActions = {
   signIn: (email: string, password: string) => Promise<void>;
@@ -41,6 +61,7 @@ type AuthActions = {
   signOut: () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
   refreshProfile: () => Promise<void>;
+  retryConnection: () => Promise<void>;
 };
 
 const StateCtx = createContext<AuthState>({ status: "loading" });
@@ -79,6 +100,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       getToken,
       onSessionEnded: () => setState({ status: "session-ended" }),
       onUpdateRequired: (info) => setState({ status: "update-required", info }),
+      onMaintenance: (retryAfterSeconds) => setState({ status: "maintenance", retryAfterSeconds }),
     });
   }, [getToken]);
 
@@ -99,16 +121,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setState({ status: "needs-profile", user });
         return;
       }
-      // The update-required and session-ended cases have already been set by
-      // the client's interceptor; do not overwrite them.
+      // The update-required, maintenance and session-ended cases have already
+      // been set by the client's interceptor; do not overwrite them.
       if (stateRef.current.status === "update-required") return;
+      if (stateRef.current.status === "maintenance") return;
       if (stateRef.current.status === "session-ended") return;
       throw err;
     }
   }, []);
 
-  useEffect(() => {
-    const unsubscribe = auth().onAuthStateChanged(async (user) => {
+  const checkSession = useCallback(
+    async (user: FirebaseAuthTypes.User | null) => {
       if (!user) {
         setState({ status: "signed-out" });
         return;
@@ -118,9 +141,93 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // so keep them signed in and let the offline banner explain.
         setState({ status: "needs-profile", user });
       });
-    });
+    },
+    [loadProfile],
+  );
+
+  useEffect(() => {
+    const unsubscribe = auth().onAuthStateChanged((user) => void checkSession(user));
     return unsubscribe;
-  }, [loadProfile]);
+  }, [checkSession]);
+
+  /**
+   * Maintenance mode and the version floor are otherwise only discovered
+   * reactively, on the first authenticated request — which means a signed-out
+   * user sitting on the login screen would type a password into a form the
+   * server is about to refuse. Called once at launch so that gate shows up
+   * front instead, and again from `retryConnection` so leaving the gate always
+   * re-confirms the server is actually back rather than just clearing itself.
+   *
+   * Returns whether a gate was set — `retryConnection` uses that to decide
+   * whether it is still safe to fall through to `checkSession`.
+   */
+  const checkAppConfig = useCallback(async (): Promise<boolean> => {
+    try {
+      const config = await fetchAppConfig(true);
+      if (config.maintenanceMode) {
+        setState({ status: "maintenance", retryAfterSeconds: 300 });
+        return true;
+      }
+      if (versionBelow(APP_VERSION, config.minSupportedVersion)) {
+        setState({
+          status: "update-required",
+          info: {
+            minSupportedVersion: config.minSupportedVersion,
+            latestVersion: config.latestVersion,
+            updateUrl: config.updateUrl,
+          },
+        });
+        return true;
+      }
+      return false;
+    } catch {
+      // Offline or unreachable. Not itself a gate — the auth listener's own
+      // state and the app's offline banner cover this case.
+      return false;
+    }
+  }, []);
+
+  useEffect(() => {
+    void checkAppConfig();
+    // Deliberately once per app launch, not on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /**
+   * Re-registers the FCM token on sign-in, and keeps it current across FCM's
+   * own rotations. Silent by construction: it only ever calls
+   * `getPermissionStatus`/`registerCurrentToken`, never `enablePush` — the
+   * permission prompt itself is push.ts's one deliberately-user-triggered
+   * action, from the Notifications row in Settings. A reinstall, a token that
+   * rotated while the app was closed, or simply the last-known token going
+   * stale all need this on every sign-in even though nothing here ever asks
+   * for permission again.
+   */
+  useEffect(() => {
+    if (state.status !== "signed-in") return;
+    const locale = state.profile.preferred_language ?? "en";
+    let unwatch: (() => void) | undefined;
+
+    getPermissionStatus().then((status) => {
+      if (status !== "granted") return;
+      void registerCurrentToken(locale);
+      unwatch = watchTokenRefresh(locale);
+    });
+
+    return () => unwatch?.();
+  }, [state.status === "signed-in" ? state.profile.preferred_language : null, state.status]);
+
+  /**
+   * Leaves the maintenance/update-required gate once the server is reachable
+   * again. Re-checks config first — a signed-out user retrying mid-maintenance
+   * must not fall straight into `checkSession`'s unconditional "signed-out",
+   * which would clear the gate whether or not the server actually recovered.
+   */
+  const retryConnection = useCallback(async () => {
+    const gated = await checkAppConfig();
+    if (gated) return;
+    await checkSession(auth().currentUser);
+  }, [checkAppConfig, checkSession]);
 
   const signIn = useCallback(
     async (email: string, password: string) => {
@@ -213,8 +320,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [loadProfile]);
 
   const actions = useMemo<AuthActions>(
-    () => ({ signIn, signUp, signOut, resetPassword, refreshProfile }),
-    [signIn, signUp, signOut, resetPassword, refreshProfile],
+    () => ({ signIn, signUp, signOut, resetPassword, refreshProfile, retryConnection }),
+    [signIn, signUp, signOut, resetPassword, refreshProfile, retryConnection],
   );
 
   return (

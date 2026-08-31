@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { View, FlatList, Pressable, TextInput, ActivityIndicator } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useRouter } from "expo-router";
 
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { GBText, Card, Badge, EmptyState, ErrorState, Skeleton } from "@/src/components/ui";
@@ -44,6 +45,7 @@ type Row = { kind: "opportunity"; item: Opportunity } | { kind: "housing"; item:
 export default function ExploreScreen() {
   const { colors, space, radius } = useTheme();
   const insets = useSafeAreaInsets();
+  const router = useRouter();
 
   const [tab, setTab] = useState<Tab>("opportunities");
   const [query, setQuery] = useState("");
@@ -202,9 +204,19 @@ export default function ExploreScreen() {
           }
           renderItem={({ item: row }) =>
             row.kind === "opportunity" ? (
-              <OpportunityCard item={row.item} />
+              <OpportunityCard
+                item={row.item}
+                onPress={() =>
+                  router.push({ pathname: "/opportunity-view", params: { id: row.item.id } } as never)
+                }
+              />
             ) : (
-              <HousingCard item={row.item} />
+              <HousingCard
+                item={row.item}
+                onPress={() =>
+                  router.push({ pathname: "/housing-view", params: { id: row.item.id } } as never)
+                }
+              />
             )
           }
         />
@@ -213,10 +225,10 @@ export default function ExploreScreen() {
   );
 }
 
-function OpportunityCard({ item }: { item: Opportunity }) {
+function OpportunityCard({ item, onPress }: { item: Opportunity; onPress: () => void }) {
   const { space } = useTheme();
   return (
-    <Card style={{ paddingVertical: space.md }}>
+    <Card onPress={onPress} style={{ paddingVertical: space.md }}>
       <View style={{ gap: 6 }}>
         <View style={{ flexDirection: "row", gap: space.sm, alignItems: "flex-start" }}>
           <GBText variant="label" style={{ flex: 1 }} numberOfLines={2}>
@@ -238,11 +250,11 @@ function OpportunityCard({ item }: { item: Opportunity }) {
   );
 }
 
-function HousingCard({ item }: { item: HousingListing }) {
+function HousingCard({ item, onPress }: { item: HousingListing; onPress: () => void }) {
   const { space } = useTheme();
   const verified = item.landlord_status === "verified";
   return (
-    <Card style={{ paddingVertical: space.md }}>
+    <Card onPress={onPress} style={{ paddingVertical: space.md }}>
       <View style={{ gap: 6 }}>
         <View style={{ flexDirection: "row", gap: space.sm, alignItems: "flex-start" }}>
           <GBText variant="label" style={{ flex: 1 }} numberOfLines={2}>

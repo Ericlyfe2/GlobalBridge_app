@@ -2,6 +2,14 @@ import React from "react";
 import Svg, { Path } from "react-native-svg";
 
 /**
+ * react-native-svg 15.x ships pre-React-19 class types that fail the React 19
+ * JSX checker under @types/react 19. The runtime components are unaffected;
+ * this narrows the typing surface only.
+ */
+const SvgEl = Svg as unknown as React.ElementType;
+const PathEl = Path as unknown as React.ElementType;
+
+/**
  * The navigation icons, as SVG paths lifted verbatim from the design.
  *
  * Drawn rather than pulled from an icon font because they are drawn in the
@@ -37,14 +45,14 @@ export function Icon({
   active?: boolean;
 }) {
   return (
-    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Path
+    <SvgEl width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <PathEl
         d={ICON_PATHS[name]}
         stroke={color}
         strokeWidth={active ? 2.4 : 2}
         strokeLinecap="round"
         strokeLinejoin="round"
       />
-    </Svg>
+    </SvgEl>
   );
 }

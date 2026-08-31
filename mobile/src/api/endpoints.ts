@@ -40,7 +40,16 @@ export type AppConfig = {
   minPollIntervalSeconds: number;
 };
 
-export const fetchAppConfig = () => get<AppConfig>("/app-config");
+/**
+ * `bypassCache` defeats the route's own `Cache-Control: public, max-age=60`
+ * (correct for a CDN, wrong for the one caller — the maintenance/version gate
+ * retry — whose entire point is finding out whether server state just
+ * changed). A cache-busting query param is used rather than a request header
+ * because it is guaranteed to miss regardless of which HTTP cache, if any,
+ * the platform's networking stack applies underneath axios.
+ */
+export const fetchAppConfig = (bypassCache = false) =>
+  get<AppConfig>("/app-config", bypassCache ? { _: Date.now() } : undefined);
 
 // ── Auth ──────────────────────────────────────────────────────────────────
 
@@ -155,6 +164,13 @@ export const fetchOpportunities = (params: {
   verified_only?: boolean;
 }) => get<ListEnvelope<Opportunity>>("/opportunities", params);
 
+export type OpportunityDetail = Opportunity & {
+  description: string | null;
+};
+
+export const fetchOpportunity = (id: string) =>
+  get<{ opportunity: OpportunityDetail }>(`/opportunities/${id}`);
+
 export type HousingListing = {
   id: string;
   title: string;
@@ -180,6 +196,15 @@ export const fetchHousing = (params: {
   country?: string;
   furnished?: boolean;
 }) => get<ListEnvelope<HousingListing>>("/housing", params);
+
+export type HousingDetail = HousingListing & {
+  description: string | null;
+  address: string | null;
+  near_university: string | null;
+  virtual_tour_url: string | null;
+};
+
+export const fetchHousingListing = (id: string) => get<{ listing: HousingDetail }>(`/housing/${id}`);
 
 // ── Messages ──────────────────────────────────────────────────────────────
 
@@ -263,6 +288,7 @@ export type ChatReply = {
   sources: AiSource[];
   lang: string;
   conversation_id: string | null;
+  message_id?: string | null;
   retrieval?: string;
   degraded?: boolean;
 };
@@ -272,6 +298,50 @@ export const sendChat = (body: {
   lang?: string;
   conversation_id?: string;
 }) => post<ChatReply>("/ai/chat", body);
+
+// ── AI conversation history ─────────────────────────────────────────────────
+
+export type AiConversation = {
+  id: string;
+  title: string;
+  origin_country: string | null;
+  destination_country: string | null;
+  visa_type: string | null;
+  message_count: number;
+  summary: string | null;
+  topics: string[] | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AiMessage = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  sources: AiSource[] | null;
+  created_at: string;
+};
+
+export const fetchAiConversations = (params: { limit?: number; offset?: number } = {}) =>
+  get<ListEnvelope<AiConversation>>("/ai/conversations", params);
+
+export const fetchAiConversation = (id: string) =>
+  get<{ conversation: AiConversation; messages: AiMessage[] }>(`/ai/conversations/${id}`);
+
+export const renameAiConversation = (id: string, title: string) =>
+  patch<{ conversation: AiConversation }>(`/ai/conversations/${id}`, { title });
+
+export const deleteAiConversation = (id: string) =>
+  del<{ deleted: boolean }>(`/ai/conversations/${id}`);
+
+export const submitAiFeedback = (body: {
+  message_id: string;
+  rating: number;
+  feedback_text?: string;
+}) => post<{ feedback: { id: string; rating: number; created_at: string } }>(
+  "/ai/conversations/feedback",
+  body,
+);
 
 export type ScamResult = {
   score: number;
@@ -446,6 +516,18 @@ export const registerDeviceToken = (body: {
  */
 export const unregisterDeviceToken = (token: string) =>
   del<{ removed: number }>("/users/device-tokens", { token });
+
+export type RegisteredDevice = {
+  id: string;
+  platform: "ios" | "android";
+  app_version: string | null;
+  locale: string | null;
+  created_at: string;
+  last_seen_at: string;
+};
+
+/** Read-only: the token itself is never returned, so there is no per-row revoke here. */
+export const fetchDeviceTokens = () => get<{ devices: RegisteredDevice[] }>("/users/device-tokens");
 
 // ── Uploads ───────────────────────────────────────────────────────────────
 

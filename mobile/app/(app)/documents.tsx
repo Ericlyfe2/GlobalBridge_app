@@ -193,7 +193,18 @@ export default function DocumentsScreen() {
           const status = STATUS[item.status];
           return (
             <Card
-              onPress={() => router.push(`/scan?documentId=${item.id}` as never)}
+              onPress={() =>
+                // A pending or rejected row has no viewable object yet -- rejected
+                // ones have already had their storage object deleted server-side
+                // -- so those still go to the scanner; only a ready document has
+                // something to actually show.
+                item.status === "ready"
+                  ? router.push({
+                      pathname: "/document-view",
+                      params: { id: item.id, type: TYPE_LABELS[item.type] ?? item.type, mime: item.mime_type ?? "" },
+                    } as never)
+                  : router.push(`/scan?documentId=${item.id}` as never)
+              }
               style={{ paddingVertical: space.md }}
               accessibilityLabel={`${TYPE_LABELS[item.type] ?? item.type}, ${status.label}`}
             >

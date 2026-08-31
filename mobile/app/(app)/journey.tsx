@@ -4,8 +4,10 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 
 import { useTheme } from "@/src/theme/ThemeProvider";
-import { GBText, Card, Badge, ProgressBar, Skeleton, ErrorState, EmptyState } from "@/src/components/ui";
+import { GBText, Card, Badge, ProgressBar, Skeleton, ErrorState, EmptyState, StaleBanner } from "@/src/components/ui";
 import { fetchHome, type HomePayload } from "@/src/api/endpoints";
+import { useConnectivity } from "@/src/hooks/useConnectivity";
+import { cacheGet, cacheSet } from "@/src/services/storage";
 
 /**
  * Journey.
@@ -24,24 +26,44 @@ import { fetchHome, type HomePayload } from "@/src/api/endpoints";
  * endpoint to tick one off. Rather than render fake tasks that do nothing when
  * tapped — §50 is explicit that there must be no dead controls — this screen
  * shows the real totals and says plainly that the detail is still coming.
+ *
+ * ── Cached, same as Home ───────────────────────────────────────────────────
+ * offline.tsx tells the user their roadmap works with no connection. That is
+ * only true if this screen actually keeps a copy — `GET /home` is the same
+ * payload the home screen already caches, under its own key, with the same
+ * stale-banner honesty about how old it is.
  */
+
+const CACHE_KEY = "journey";
 
 export default function JourneyScreen() {
   const { colors, space } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { online } = useConnectivity();
 
   const [data, setData] = useState<HomePayload | null>(null);
+  const [cachedAt, setCachedAt] = useState<number | undefined>();
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
   const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
     try {
-      setData(await fetchHome());
+      const fresh = await fetchHome();
+      setData(fresh);
+      setCachedAt(undefined);
       setState("ready");
+      await cacheSet(CACHE_KEY, fresh);
     } catch {
-      setState("error");
+      const cached = await cacheGet<HomePayload>(CACHE_KEY);
+      if (cached) {
+        setData(cached.value);
+        setCachedAt(cached.at);
+        setState("ready");
+      } else {
+        setState("error");
+      }
     } finally {
       if (isRefresh) setRefreshing(false);
     }
@@ -83,6 +105,8 @@ export default function JourneyScreen() {
       }
     >
       <GBText variant="title">Your visa roadmap</GBText>
+
+      {cachedAt ? <StaleBanner at={cachedAt} online={online} /> : null}
 
       {data.checklist ? (
         <>

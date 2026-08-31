@@ -7,21 +7,18 @@
  */
 
 import { useState } from "react";
-import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  StyleSheet,
-  Alert,
-  KeyboardAvoidingView,
-  Platform,
-} from "react-native";
+import { View, TextInput, Alert, KeyboardAvoidingView, Platform, Pressable } from "react-native";
 import { Link } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+
 import { useAuthActions } from "@/src/contexts/AuthContext";
+import { useTheme } from "@/src/theme/ThemeProvider";
+import { GBText, Button } from "@/src/components/ui";
 
 export default function LoginScreen() {
   const { signIn } = useAuthActions();
+  const { colors, space, radius } = useTheme();
+  const insets = useSafeAreaInsets();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -51,120 +48,77 @@ export default function LoginScreen() {
     }
   };
 
+  const inputStyle = {
+    minHeight: 52,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: space.md,
+    color: colors.ink,
+    fontSize: 16,
+  };
+
   return (
     <KeyboardAvoidingView
-      style={styles.container}
+      style={{ flex: 1, backgroundColor: colors.bg }}
       behavior={Platform.OS === "ios" ? "padding" : "height"}
     >
-      <View style={styles.content}>
-        <Text style={styles.title}>GlobalBridge</Text>
-        <Text style={styles.subtitle}>Your immigration journey, simplified.</Text>
+      <View
+        style={{
+          flex: 1,
+          justifyContent: "center",
+          paddingHorizontal: space.xl,
+          paddingTop: insets.top,
+          paddingBottom: insets.bottom,
+        }}
+      >
+        <GBText variant="display" style={{ textAlign: "center", marginBottom: space.xs }}>
+          GlobalBridge
+        </GBText>
+        <GBText variant="body" tone="muted" style={{ textAlign: "center", marginBottom: space.xxl }}>
+          Your immigration journey, simplified.
+        </GBText>
 
-        <View style={styles.form}>
+        <View style={{ gap: space.md }}>
           <TextInput
-            style={styles.input}
+            style={inputStyle}
             placeholder="Email"
-            placeholderTextColor="#6B7280"
+            placeholderTextColor={colors.ink5}
             value={email}
             onChangeText={setEmail}
             autoCapitalize="none"
             keyboardType="email-address"
             autoComplete="email"
+            accessibilityLabel="Email"
           />
           <TextInput
-            style={styles.input}
+            style={inputStyle}
             placeholder="Password"
-            placeholderTextColor="#6B7280"
+            placeholderTextColor={colors.ink5}
             value={password}
             onChangeText={setPassword}
             secureTextEntry
             autoComplete="password"
+            accessibilityLabel="Password"
           />
 
-          <TouchableOpacity
-            style={[styles.button, loading && styles.buttonDisabled]}
-            onPress={handleLogin}
-            disabled={loading}
-          >
-            <Text style={styles.buttonText}>
-              {loading ? "Signing in..." : "Sign In"}
-            </Text>
-          </TouchableOpacity>
+          <Button
+            label={loading ? "Signing in..." : "Sign In"}
+            onPress={() => void handleLogin()}
+            loading={loading}
+            style={{ marginTop: space.xs }}
+          />
         </View>
 
         <Link href="/(auth)/register" asChild>
-          <TouchableOpacity style={styles.linkButton}>
-            <Text style={styles.linkText}>
-              Don't have an account? <Text style={styles.linkBold}>Sign up</Text>
-            </Text>
-          </TouchableOpacity>
+          <Pressable style={{ marginTop: space.xl, alignItems: "center" }}>
+            <GBText variant="small" tone="muted">
+              Don't have an account? <GBText variant="small" tone="brand">Sign up</GBText>
+            </GBText>
+          </Pressable>
         </Link>
       </View>
     </KeyboardAvoidingView>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#0A1628",
-  },
-  content: {
-    flex: 1,
-    justifyContent: "center",
-    paddingHorizontal: 24,
-  },
-  title: {
-    fontSize: 32,
-    fontWeight: "700",
-    color: "#FFFFFF",
-    textAlign: "center",
-    marginBottom: 8,
-  },
-  subtitle: {
-    fontSize: 16,
-    color: "#9CA3AF",
-    textAlign: "center",
-    marginBottom: 40,
-  },
-  form: {
-    gap: 16,
-  },
-  input: {
-    backgroundColor: "#1F2937",
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    fontSize: 16,
-    color: "#FFFFFF",
-    borderWidth: 1,
-    borderColor: "#374151",
-  },
-  button: {
-    backgroundColor: "#3B82F6",
-    borderRadius: 12,
-    paddingVertical: 14,
-    alignItems: "center",
-    marginTop: 8,
-  },
-  buttonDisabled: {
-    opacity: 0.6,
-  },
-  buttonText: {
-    color: "#FFFFFF",
-    fontSize: 16,
-    fontWeight: "600",
-  },
-  linkButton: {
-    marginTop: 24,
-    alignItems: "center",
-  },
-  linkText: {
-    color: "#9CA3AF",
-    fontSize: 14,
-  },
-  linkBold: {
-    color: "#3B82F6",
-    fontWeight: "600",
-  },
-});

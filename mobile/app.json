@@ -15,16 +15,23 @@
       "adaptiveIcon": {
         "backgroundColor": "#0A1628"
       },
-      "package": "app.globalbridge.mobile"
+      "package": "app.globalbridge.mobile",
+      "googleServicesFile": "./google-services.placeholder.json"
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "single"
     },
     "plugins": [
+      "@react-native-firebase/app",
       "expo-router",
       [
         "expo-secure-store",
         {
           "clipboardPermission": "Allow GlobalBridge to access clipboard for verification codes."
         }
-      ]
+      ],
+      "expo-font"
     ]
   }
 }
