@@ -7,16 +7,19 @@
     "scheme": "globalbridge",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
+    "icon": "./assets/icon.png",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "app.globalbridge.mobile"
+      "bundleIdentifier": "app.globalbridge.mobile",
+      "icon": "./assets/icon.png"
     },
     "android": {
       "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon-foreground.png",
         "backgroundColor": "#0A1628"
       },
       "package": "app.globalbridge.mobile",
-      "googleServicesFile": "./google-services.placeholder.json"
+      "googleServicesFile": "./google-services.json"
     },
     "web": {
       "bundler": "metro",
@@ -31,7 +34,8 @@
           "clipboardPermission": "Allow GlobalBridge to access clipboard for verification codes."
         }
       ],
-      "expo-font"
+      "expo-font",
+      "@react-native-google-signin/google-signin"
     ]
   }
 }

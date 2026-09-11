@@ -27,3 +27,8 @@ mobile/android-sdk*/
 
 # Editor/backup cruft
 *.bak
+
+# Real Firebase client config — a credential, not a template. The tracked
+# mobile/google-services.placeholder.json is intentionally fake and stays.
+mobile/google-services.json
+mobile/GoogleService-Info.plist

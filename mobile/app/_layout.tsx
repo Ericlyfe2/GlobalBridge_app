@@ -7,6 +7,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { AuthProvider, useAuth, useAuthActions } from "@/src/contexts/AuthContext";
 import { ThemeProvider, useTheme } from "@/src/theme/ThemeProvider";
 import { GBText, Button } from "@/src/components/ui";
+import { AnimatedSplash } from "@/src/components/AnimatedSplash";
 
 /**
  * Root layout.
@@ -150,6 +151,13 @@ function MaintenanceScreen({ retryAfterSeconds }: { retryAfterSeconds: number })
 function Gate() {
   const state = useAuth();
   const { colors, isDark } = useTheme();
+  const [splashDone, setSplashDone] = React.useState(false);
+
+  if (!splashDone) {
+    return (
+      <AnimatedSplash ready={state.status !== "loading"} onFinish={() => setSplashDone(true)} />
+    );
+  }
 
   if (state.status === "update-required") {
     return (
@@ -196,7 +204,13 @@ function Gate() {
   return (
     <>
       <StatusBar style={isDark ? "light" : "dark"} />
-      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.bg } }}>
+      <Stack
+        screenOptions={{
+          headerShown: false,
+          contentStyle: { backgroundColor: colors.bg },
+          animation: "fade",
+        }}
+      >
         <Stack.Screen name="(auth)" />
         <Stack.Screen name="(app)" />
       </Stack>

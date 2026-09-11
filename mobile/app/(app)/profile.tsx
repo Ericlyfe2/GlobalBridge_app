@@ -17,6 +17,7 @@ import { updatePreferences, fetchDeviceTokens, type RegisteredDevice } from "@/s
 import type { AuthUser } from "@/src/api/types";
 import { useTheme, type ThemeMode } from "@/src/theme/ThemeProvider";
 import { GBText, Card, Badge, Button, Skeleton } from "@/src/components/ui";
+import { AmbientBackground } from "@/src/components/AmbientBackground";
 import { MIN_TOUCH } from "@/src/theme/tokens";
 import { getPermissionStatus, enablePush, type PushPermission } from "@/src/services/push";
 
@@ -50,7 +51,9 @@ export default function ProfileScreen() {
   const [devicesOpen, setDevicesOpen] = useState(false);
 
   useEffect(() => {
-    get<AuthUser>("/auth/me").then(setUser).catch(() => {});
+    get<{ user: AuthUser; profileComplete: boolean }>("/auth/me")
+      .then((res) => setUser(res.user))
+      .catch(() => {});
     getPermissionStatus().then(setPushStatus).catch(() => {});
   }, []);
 
@@ -158,13 +161,15 @@ export default function ProfileScreen() {
   const currentAppearanceLabel = APPEARANCE.find((a) => a.mode === mode)?.label ?? "Match device";
 
   return (
-    <ScrollView
-      style={{ flex: 1, backgroundColor: colors.bg }}
-      contentContainerStyle={{ padding: space.lg, paddingTop: insets.top + space.xl, paddingBottom: space.xxl }}
-    >
-      <GBText variant="title" style={{ marginBottom: space.lg }}>
-        Profile
-      </GBText>
+    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+      <AmbientBackground />
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ padding: space.lg, paddingTop: insets.top + space.xl, paddingBottom: space.xxl }}
+      >
+        <GBText variant="title" style={{ marginBottom: space.lg }}>
+          Profile
+        </GBText>
 
       <Card style={{ flexDirection: "row", alignItems: "center", gap: space.md, marginBottom: space.xl }}>
         <View
@@ -265,7 +270,8 @@ export default function ProfileScreen() {
       />
 
       <DevicesSheet visible={devicesOpen} onClose={() => setDevicesOpen(false)} />
-    </ScrollView>
+      </ScrollView>
+    </View>
   );
 }
 

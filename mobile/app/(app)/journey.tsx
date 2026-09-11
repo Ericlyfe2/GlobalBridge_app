@@ -5,6 +5,7 @@ import { useRouter } from "expo-router";
 
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { GBText, Card, Badge, ProgressBar, Skeleton, ErrorState, EmptyState, StaleBanner } from "@/src/components/ui";
+import { AmbientBackground } from "@/src/components/AmbientBackground";
 import { fetchHome, type HomePayload } from "@/src/api/endpoints";
 import { useConnectivity } from "@/src/hooks/useConnectivity";
 import { cacheGet, cacheSet } from "@/src/services/storage";
@@ -92,19 +93,21 @@ export default function JourneyScreen() {
   }
 
   return (
-    <ScrollView
-      style={{ flex: 1, backgroundColor: colors.bg }}
-      contentContainerStyle={{
-        padding: space.lg,
-        paddingTop: insets.top + space.md,
-        paddingBottom: space.xxl,
-        gap: space.lg,
-      }}
-      refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={() => void load(true)} tintColor={colors.clay} />
-      }
-    >
-      <GBText variant="title">Your visa roadmap</GBText>
+    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+      <AmbientBackground />
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{
+          padding: space.lg,
+          paddingTop: insets.top + space.md,
+          paddingBottom: space.xxl,
+          gap: space.lg,
+        }}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={() => void load(true)} tintColor={colors.clay} />
+        }
+      >
+        <GBText variant="title">Your visa roadmap</GBText>
 
       {cachedAt ? <StaleBanner at={cachedAt} online={online} /> : null}
 
@@ -160,6 +163,7 @@ export default function JourneyScreen() {
           </Card>
         </View>
       ) : null}
-    </ScrollView>
+      </ScrollView>
+    </View>
   );
 }

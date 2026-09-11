@@ -16,6 +16,7 @@ import { Ionicons } from "@expo/vector-icons";
 
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { GBText, Card, Badge, Button, EmptyState, Skeleton } from "@/src/components/ui";
+import { AmbientBackground } from "@/src/components/AmbientBackground";
 import {
   sendChat,
   fetchAiConversations,
@@ -162,6 +163,7 @@ export default function AssistantScreen() {
       behavior={Platform.OS === "ios" ? "padding" : undefined}
       keyboardVerticalOffset={insets.bottom + 62}
     >
+      <AmbientBackground />
       <View
         style={{
           paddingTop: insets.top + space.md,

@@ -5,6 +5,7 @@ import { useRouter } from "expo-router";
 
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { GBText, Card, Badge, EmptyState, ErrorState, Skeleton } from "@/src/components/ui";
+import { AmbientBackground } from "@/src/components/AmbientBackground";
 import {
   fetchOpportunities,
   fetchHousing,
@@ -109,6 +110,7 @@ export default function ExploreScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg, paddingTop: insets.top }}>
+      <AmbientBackground />
       <View style={{ paddingHorizontal: space.lg, paddingTop: space.md, gap: space.md }}>
         <GBText variant="title">Explore</GBText>
 

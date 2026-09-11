@@ -45,6 +45,7 @@ export default function AppLayout() {
     <Tabs
       screenOptions={{
         headerShown: false,
+        animation: "shift",
         tabBarActiveTintColor: colors.clay,
         tabBarInactiveTintColor: colors.ink5,
         tabBarStyle: {

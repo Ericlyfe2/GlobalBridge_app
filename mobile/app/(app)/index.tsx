@@ -5,6 +5,7 @@ import { useRouter } from "expo-router";
 
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { GBText, Card, Badge, ProgressBar, Skeleton, ErrorState, StaleBanner } from "@/src/components/ui";
+import { AmbientBackground } from "@/src/components/AmbientBackground";
 import { fetchHome, type HomePayload } from "@/src/api/endpoints";
 import { useConnectivity } from "@/src/hooks/useConnectivity";
 import { cacheGet, cacheSet } from "@/src/services/storage";
@@ -84,19 +85,21 @@ export default function HomeScreen() {
   const { data, cachedAt } = view;
 
   return (
-    <ScrollView
-      style={{ flex: 1, backgroundColor: colors.bg }}
-      contentContainerStyle={{
-        padding: space.lg,
-        paddingTop: insets.top + space.md,
-        paddingBottom: space.xxl,
-        gap: space.lg,
-      }}
-      refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={() => void load(true)} tintColor={colors.clay} />
-      }
-    >
-      {cachedAt ? <StaleBanner at={cachedAt} online={online} /> : null}
+    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+      <AmbientBackground />
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{
+          padding: space.lg,
+          paddingTop: insets.top + space.md,
+          paddingBottom: space.xxl,
+          gap: space.lg,
+        }}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={() => void load(true)} tintColor={colors.clay} />
+        }
+      >
+        {cachedAt ? <StaleBanner at={cachedAt} online={online} /> : null}
 
       <Greeting name={data.user.full_name} unread={data.unread} />
 
@@ -188,7 +191,8 @@ export default function HomeScreen() {
           service and does not give legal advice.
         </GBText>
       </View>
-    </ScrollView>
+      </ScrollView>
+    </View>
   );
 }
 

@@ -16,6 +16,7 @@ import {
   watchTokenRefresh,
 } from "../services/push";
 import { clearLocalCache } from "../services/storage";
+import { signInWithGoogle as runGoogleSignIn, type GoogleSignInOutcome } from "../services/googleAuth";
 
 /** `"1.2.10" < "1.3.0"` semver compare, good enough for a three-part version string. */
 function versionBelow(current: string, floor: string): boolean {
@@ -48,6 +49,7 @@ export type AuthState =
 
 type AuthActions = {
   signIn: (email: string, password: string) => Promise<void>;
+  signInWithGoogle: () => Promise<GoogleSignInOutcome>;
   signUp: (input: {
     email: string;
     password: string;
@@ -237,6 +239,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [loadProfile],
   );
 
+  const signInWithGoogle = useCallback(async (): Promise<GoogleSignInOutcome> => {
+    const outcome = await runGoogleSignIn();
+    if (outcome === "signed-in") {
+      const user = auth().currentUser;
+      if (user) await loadProfile(user);
+    }
+    return outcome;
+  }, [loadProfile]);
+
   /**
    * Sign up, with the rollback that keeps the two systems consistent.
    *
@@ -320,8 +331,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [loadProfile]);
 
   const actions = useMemo<AuthActions>(
-    () => ({ signIn, signUp, signOut, resetPassword, refreshProfile, retryConnection }),
-    [signIn, signUp, signOut, resetPassword, refreshProfile, retryConnection],
+    () => ({ signIn, signInWithGoogle, signUp, signOut, resetPassword, refreshProfile, retryConnection }),
+    [signIn, signInWithGoogle, signUp, signOut, resetPassword, refreshProfile, retryConnection],
   );
 
   return (
